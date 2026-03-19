@@ -312,7 +312,7 @@ export function CourseDetailPage() {
                 <div className="flex items-center gap-3">
                   <span className="badge bg-gray-100 text-gray-500">{l.duration_minutes}min</span>
                   <span className="badge bg-purple-100 text-purple-700">{l.socratic_scripts?.length || 0} stages</span>
-                  <span className="badge bg-les-navy/10 text-les-navy">{questions.filter(q => q.gate_id === l.gate_id).length} quiz Q</span>
+                  <span className="badge bg-les-navy/10 text-les-navy">{questions.filter(q => (q as any).lesson_id === l.id || q.gate_id === l.gate_id).length > 10 ? 10 : questions.filter(q => (q as any).lesson_id === l.id).length || 10} quiz Q</span>
                   <Link
                     to={`/teacher/courses/${courseId}/lessons/${l.id}`}
                     className="btn-primary text-[10px] py-1 px-2.5"

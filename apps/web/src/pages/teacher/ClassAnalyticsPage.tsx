@@ -88,6 +88,7 @@ export function ClassAnalyticsPage() {
   const [suggestions, setSuggestions] = useState<AISuggestion[]>([]);
   const [attention, setAttention] = useState<any[]>([]);
   const [adaptiveData, setAdaptiveData] = useState<AdaptiveData | null>(null);
+  const [selectedStudent, setSelectedStudent] = useState<string | null>(null);
   const [showHistory, setShowHistory] = useState(false);
   const [expandedSession, setExpandedSession] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
@@ -496,12 +497,21 @@ export function ClassAnalyticsPage() {
                 </div>
               )}
 
-              {/* Learning Velocity */}
+              {/* Learning Velocity — computed from actual session data */}
               <div className="card p-4">
                 <h3 className="section-header mb-3">Class Learning Velocity</h3>
-                <p className="text-[11px] text-gray-500 mb-3">Average mastery progression over the last 6 weeks</p>
+                <p className="text-[11px] text-gray-500 mb-3">Average quiz scores across completed sessions</p>
                 <VelocitySVG
-                  data={[45, 52, 58, 63, 68, 72]}
+                  data={(() => {
+                    const completed = sessionAnalytics?.sessions.filter(s => s.status === 'completed' && s.avg_quiz_score > 0) || [];
+                    if (completed.length < 2) return [0, 0];
+                    // Sample 6 evenly spaced points from completed sessions
+                    const step = Math.max(1, Math.floor(completed.length / 6));
+                    return Array.from({ length: Math.min(6, completed.length) }, (_, i) => {
+                      const idx = Math.min(i * step, completed.length - 1);
+                      return completed[idx].avg_quiz_score;
+                    });
+                  })()}
                   color={heatmap.gates.find(g => g.id === selGate)?.color || '#2E75B6'}
                   width={380}
                   height={120}
@@ -529,26 +539,36 @@ export function ClassAnalyticsPage() {
                 )}
               </div>
 
-              {/* AI Suggestions */}
+              {/* AI Suggestions — same data source as AI Guide tab */}
               <div className="card p-4">
                 <h3 className="section-header mb-3 flex items-center gap-2">
                   <span className="w-2 h-2 rounded-full bg-les-blue pulse-dot inline-block" />
                   AI Suggestions
+                  <button onClick={() => setTab('ai_guide')} className="text-[10px] text-blue-600 hover:underline ml-auto font-normal normal-case tracking-normal">View all in AI Guide →</button>
                 </h3>
-                {suggestions.length === 0 ? <p className="text-[11px] text-gray-400">No suggestions</p> : (
+                {!adaptiveData || adaptiveData.suggestions.length === 0 ? <p className="text-[11px] text-gray-400">No suggestions yet</p> : (
                   <div className="space-y-2">
-                    {suggestions.map(s => (
-                      <div key={s.id} className={`p-2.5 rounded-xl border text-[11px] ${s.status === 'accepted' ? 'border-green-200 bg-green-50' : s.status === 'rejected' ? 'opacity-60' : ''}`}>
-                        <p className="font-bold text-gray-700">{s.title}</p>
-                        <p className="text-gray-500">{s.description}</p>
-                        {s.status === 'pending' && (
-                          <div className="flex gap-1.5 mt-2">
-                            <button onClick={() => resolveSuggestion(s.id, 'accepted')} className="btn-accept text-[10px] py-1 px-2.5">Accept</button>
-                            <button onClick={() => resolveSuggestion(s.id, 'rejected')} className="btn-reject text-[10px] py-1 px-2.5">Reject</button>
+                    {adaptiveData.suggestions.filter(s => s.status === 'pending').slice(0, 3).map(s => {
+                      const tc = TYPE_CONFIG[s.type] || { icon: '💡', label: s.type, color: '#6B7280' };
+                      return (
+                        <div key={s.id} className="p-2.5 rounded-xl border text-[11px]">
+                          <div className="flex items-center gap-1.5 mb-1">
+                            <span className="text-sm">{tc.icon}</span>
+                            <span className="font-bold text-gray-700">{s.title}</span>
                           </div>
-                        )}
-                      </div>
-                    ))}
+                          <p className="text-gray-500">{s.reason.slice(0, 120)}{s.reason.length > 120 ? '...' : ''}</p>
+                          <div className="flex gap-1.5 mt-2">
+                            <button onClick={() => resolveAdaptive(s.id, 'accepted')} className="btn-accept text-[10px] py-1 px-2.5">Accept</button>
+                            <button onClick={() => resolveAdaptive(s.id, 'rejected')} className="btn-reject text-[10px] py-1 px-2.5">Reject</button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                    {adaptiveData.suggestions.filter(s => s.status === 'pending').length > 3 && (
+                      <button onClick={() => setTab('ai_guide')} className="text-[11px] text-blue-600 hover:underline">
+                        + {adaptiveData.suggestions.filter(s => s.status === 'pending').length - 3} more suggestions →
+                      </button>
+                    )}
                   </div>
                 )}
               </div>

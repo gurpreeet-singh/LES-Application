@@ -13,10 +13,10 @@ const STEPS = [
 
 function getStepIndex(status: string): number {
   switch (status) {
-    case 'draft': return 0;
-    case 'processing': return 1;
-    case 'review': return 2;
-    case 'active': return 4;
+    case 'draft': return 0;       // Just created, no syllabus yet
+    case 'processing': return 2;  // Syllabus uploaded, AI processing
+    case 'review': return 3;      // AI done, teacher reviewing
+    case 'active': return 4;      // Published and live
     case 'archived': return 4;
     default: return 0;
   }
