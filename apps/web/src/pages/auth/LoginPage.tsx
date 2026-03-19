@@ -21,8 +21,12 @@ export function LoginPage() {
     setError('');
     setLoading(true);
     try {
-      // Use signUp for demo mode (creates session), signIn for real mode
-      await signUp(email, password, fullName || email.split('@')[0] || 'User', role);
+      // Try login first, fall back to signup for new users
+      try {
+        await signIn(email, password);
+      } catch {
+        await signUp(email, password, fullName || email.split('@')[0] || 'User', role);
+      }
       navigate(role === 'teacher' ? '/teacher' : '/student');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed');
