@@ -21,15 +21,22 @@ export function LoginPage() {
     setError('');
     setLoading(true);
     try {
-      // Try login first, fall back to signup for new users
-      try {
-        await signIn(email, password);
-      } catch {
-        await signUp(email, password, fullName || email.split('@')[0] || 'User', role);
-      }
+      await signIn(email, password);
       navigate(role === 'teacher' ? '/teacher' : '/student');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Login failed');
+    } catch (signInErr) {
+      // If login fails, try signup (new user)
+      try {
+        await signUp(email, password, fullName || email.split('@')[0] || 'User', role);
+        navigate(role === 'teacher' ? '/teacher' : '/student');
+      } catch (signUpErr) {
+        // If both fail, show the original login error (not the signup error)
+        const msg = signInErr instanceof Error ? signInErr.message : 'Login failed';
+        if (msg.includes('Invalid login')) {
+          setError('Invalid email or password. Please check your credentials.');
+        } else {
+          setError(msg);
+        }
+      }
     } finally {
       setLoading(false);
     }
