@@ -42,7 +42,7 @@ export class DeconstructionService {
       rawResponse = await this.llm.complete({
         systemPrompt: system,
         userMessage: user,
-        maxTokens: 16000,
+        maxTokens: 64000,
         temperature: 0.3,
       });
     } catch (err) {
