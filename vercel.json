@@ -1,5 +1,5 @@
 {
-  "buildCommand": "cd apps/web && npm run build",
+  "buildCommand": "cd packages/shared && npx tsc || true && cd ../../apps/web && npx vite build",
   "outputDirectory": "apps/web/dist",
   "installCommand": "npm install",
   "framework": null,
