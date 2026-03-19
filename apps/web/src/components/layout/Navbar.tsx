@@ -15,9 +15,9 @@ export function Navbar() {
   const isActive = (path: string) => location.pathname === path || location.pathname.startsWith(path + '/');
 
   const teacherLinks = [
+    { to: '/teacher/guide', label: 'Platform Guide' },
     { to: '/teacher', label: 'Dashboard', exact: true },
     { to: '/teacher/courses', label: 'Courses' },
-    { to: '/teacher/guide', label: 'Guide' },
   ];
 
   const studentLinks = [
