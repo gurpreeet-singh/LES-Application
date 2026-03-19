@@ -102,13 +102,24 @@ export class DeconstructionService {
     // Build gate number -> id map
     const gateIdMap = new Map(gates.map(g => [g.gate_number, g.id]));
 
-    // 2. Insert prerequisites
+    // 2. Insert prerequisites (handle both number and string prerequisites)
+    const gateNameToNumber = new Map(output.step2_knowledge_graph.gates.map(g => [g.title.toLowerCase(), g.number]));
     const prereqInserts: { gate_id: string; prerequisite_gate_id: string }[] = [];
     for (const g of output.step2_knowledge_graph.gates) {
       for (const prereq of g.prerequisites) {
+        let prereqNumber: number;
+        if (typeof prereq === 'number') {
+          prereqNumber = prereq;
+        } else {
+          // Try to parse as number first, then look up by name
+          prereqNumber = parseInt(String(prereq), 10);
+          if (isNaN(prereqNumber)) {
+            prereqNumber = gateNameToNumber.get(String(prereq).toLowerCase()) || 0;
+          }
+        }
         const gateId = gateIdMap.get(g.number);
-        const prereqId = gateIdMap.get(prereq);
-        if (gateId && prereqId) {
+        const prereqId = gateIdMap.get(prereqNumber);
+        if (gateId && prereqId && gateId !== prereqId) {
           prereqInserts.push({ gate_id: gateId, prerequisite_gate_id: prereqId });
         }
       }

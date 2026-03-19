@@ -12,7 +12,7 @@ export const GateGraphSchema = z.object({
   short_title: z.string(),
   period: z.string().default(''),
   sub_concepts: z.array(z.string()),
-  prerequisites: z.array(z.number()),
+  prerequisites: z.array(z.union([z.number(), z.string()])).default([]),
 });
 
 export const CriticalGateSchema = z.object({
@@ -83,7 +83,7 @@ export const DiagnosticQuestionSchema = z.object({
   sub_concept: z.string().default(''),
   bloom_level: z.string(),
   question_text: z.string(),
-  type: z.enum(['mcq', 'short_answer', 'open_ended']),
+  type: z.enum(['mcq', 'short_answer', 'open_ended', 'true_false']),
   options: z.array(QuestionOptionSchema).optional(),
   correct_answer: z.string(),
   rubric: z.string().default(''),
