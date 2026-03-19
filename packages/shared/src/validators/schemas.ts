@@ -83,7 +83,10 @@ export const DiagnosticQuestionSchema = z.object({
   sub_concept: z.string().default(''),
   bloom_level: z.string(),
   question_text: z.string(),
-  type: z.enum(['mcq', 'short_answer', 'open_ended', 'true_false']),
+  type: z.string().transform(val => {
+    const map: Record<string, string> = { mcq: 'mcq', multiple_choice: 'mcq', short_answer: 'short_answer', short: 'short_answer', open_ended: 'open_ended', open: 'open_ended', essay: 'open_ended', true_false: 'true_false', tf: 'true_false', ordering: 'short_answer', fill_blank: 'short_answer', matching: 'short_answer' };
+    return map[val.toLowerCase()] || 'open_ended';
+  }),
   options: z.array(QuestionOptionSchema).optional(),
   correct_answer: z.string(),
   rubric: z.string().default(''),
