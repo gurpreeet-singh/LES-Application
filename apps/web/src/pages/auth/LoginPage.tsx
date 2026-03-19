@@ -21,7 +21,8 @@ export function LoginPage() {
     setError('');
     setLoading(true);
     try {
-      await signUp(email, password, fullName || 'Demo User', role);
+      // Use signUp for demo mode (creates session), signIn for real mode
+      await signUp(email, password, fullName || email.split('@')[0] || 'User', role);
       navigate(role === 'teacher' ? '/teacher' : '/student');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed');

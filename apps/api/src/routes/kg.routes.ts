@@ -35,12 +35,14 @@ router.get('/', async (req: Request, res: Response) => {
   });
 });
 
-// GET /courses/:courseId/kg/gates
+// GET /courses/:courseId/kg/gates — with prerequisites (edges)
 router.get('/gates', async (req: Request, res: Response) => {
-  const { data, error } = await supabaseAdmin
+  const courseId = req.params.courseId;
+
+  const { data: gates, error } = await supabaseAdmin
     .from('gates')
-    .select('*')
-    .eq('course_id', req.params.courseId)
+    .select('*, sub_concepts(*)')
+    .eq('course_id', courseId)
     .order('sort_order');
 
   if (error) {
@@ -48,7 +50,14 @@ router.get('/gates', async (req: Request, res: Response) => {
     return;
   }
 
-  res.json({ gates: data });
+  // Fetch prerequisite edges
+  const gateIds = (gates || []).map(g => g.id);
+  const { data: edges } = await supabaseAdmin
+    .from('gate_prerequisites')
+    .select('gate_id, prerequisite_gate_id')
+    .in('gate_id', gateIds.length > 0 ? gateIds : ['none']);
+
+  res.json({ gates: gates || [], edges: edges || [] });
 });
 
 // GET /courses/:courseId/kg/gates/:gateId

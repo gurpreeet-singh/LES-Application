@@ -132,6 +132,31 @@ router.post('/:id/syllabus', requireRole('teacher'), async (req: Request, res: R
   res.json({ course: data });
 });
 
+// POST /courses/:id/syllabus/upload — File upload (text extraction placeholder)
+router.post('/:id/syllabus/upload', requireRole('teacher'), async (req: Request, res: Response) => {
+  const { filename } = req.body;
+
+  // For now, just acknowledge the upload. In production, this would:
+  // 1. Accept multipart file upload
+  // 2. Extract text from PDF/DOCX using a library
+  // 3. Store the extracted text as syllabus_text
+
+  const { data: course } = await supabaseAdmin
+    .from('courses')
+    .select('syllabus_text')
+    .eq('id', req.params.id)
+    .eq('teacher_id', req.user!.id)
+    .single();
+
+  const extractedText = course?.syllabus_text || `[Uploaded file: ${filename || 'document'}. Text extraction pending.]`;
+
+  res.json({
+    course: course,
+    extracted_text: extractedText,
+    filename: filename || 'uploaded_file',
+  });
+});
+
 // POST /courses/:id/process — Trigger LLM deconstruction (SSE)
 router.post('/:id/process', requireRole('teacher'), async (req: Request, res: Response) => {
   const { data: course, error } = await supabaseAdmin
