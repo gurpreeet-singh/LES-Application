@@ -30,6 +30,22 @@ router.post('/signup', async (req: Request, res: Response) => {
     return;
   }
 
+  // Ensure profile exists (trigger may not fire in all Supabase configs)
+  const { data: existingProfile } = await supabaseAdmin
+    .from('profiles')
+    .select('id')
+    .eq('id', data.user.id)
+    .single();
+
+  if (!existingProfile) {
+    await supabaseAdmin.from('profiles').insert({
+      id: data.user.id,
+      email,
+      full_name,
+      role,
+    });
+  }
+
   // Generate a session for the new user
   const { data: session, error: signInError } = await supabaseAdmin.auth.signInWithPassword({
     email,
