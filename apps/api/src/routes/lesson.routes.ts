@@ -28,7 +28,7 @@ router.get('/', async (req: Request, res: Response) => {
   res.json({ lessons: data });
 });
 
-// GET /courses/:courseId/lessons/:id
+// GET /courses/:courseId/lessons/:id — with questions and gate context
 router.get('/:id', async (req: Request, res: Response) => {
   const { data, error } = await supabaseAdmin
     .from('lessons')
@@ -41,7 +41,41 @@ router.get('/:id', async (req: Request, res: Response) => {
     return;
   }
 
-  res.json({ lesson: data });
+  // Get questions for this lesson's gate
+  const { data: questions } = await supabaseAdmin
+    .from('questions')
+    .select('*')
+    .eq('gate_id', data.gate_id)
+    .eq('course_id', req.params.courseId)
+    .order('bloom_level')
+    .order('difficulty');
+
+  // Get gate info
+  const { data: gate } = await supabaseAdmin
+    .from('gates')
+    .select('*, sub_concepts(*)')
+    .eq('id', data.gate_id)
+    .single();
+
+  // Distribute questions across lessons in this gate (10 per lesson)
+  const { data: gateLessons } = await supabaseAdmin
+    .from('lessons')
+    .select('id, lesson_number')
+    .eq('gate_id', data.gate_id)
+    .eq('course_id', req.params.courseId)
+    .order('lesson_number');
+
+  let lessonQuestions = questions || [];
+  if (gateLessons && gateLessons.length > 0 && lessonQuestions.length > 0) {
+    const lessonIndex = gateLessons.findIndex((l: any) => l.id === data.id);
+    if (lessonIndex >= 0) {
+      const qPerLesson = Math.ceil(lessonQuestions.length / gateLessons.length);
+      const start = lessonIndex * qPerLesson;
+      lessonQuestions = lessonQuestions.slice(start, start + qPerLesson);
+    }
+  }
+
+  res.json({ lesson: data, questions: lessonQuestions, gate });
 });
 
 // PUT /courses/:courseId/lessons/:id
