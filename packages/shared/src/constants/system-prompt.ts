@@ -46,7 +46,11 @@ Step 6 — Lesson Architecture
 For each lesson define: learning objective, key idea, conceptual breakthrough, examples, exercises.
 
 Step 7 — Socratic Teaching Script
-For selected lessons create guided discovery dialogue.
+For EVERY lesson create guided discovery dialogue with 4 stages:
+Stage 1 - Hook (5 min): Opening question that activates prior knowledge
+Stage 2 - Discovery (15 min): Guide students to discover the concept through progressive questions
+Stage 3 - Concept Build (12 min): Students articulate the concept before seeing formal definition
+Stage 4 - Application (8 min): Students apply the concept to a new problem
 Rules: ask progressive questions, do not reveal answers immediately, allow conceptual struggle.
 The goal is intellectual discovery.
 
@@ -152,9 +156,22 @@ IMPORTANT: You MUST output your entire analysis as a single valid JSON object. D
   ]
 }`;
 
-export function buildDeconstructionPrompt(syllabusText: string) {
+export function buildDeconstructionPrompt(syllabusText: string, totalSessions?: number, sessionDuration?: number) {
+  let timetableConstraint = '';
+  if (totalSessions && totalSessions > 0) {
+    timetableConstraint = `
+
+CRITICAL TIMETABLE CONSTRAINT:
+The teacher has exactly ${totalSessions} classroom sessions of ${sessionDuration || 40} minutes each.
+You MUST generate EXACTLY ${totalSessions} lessons in step6_lessons (lesson_number 1 through ${totalSessions}).
+Distribute lessons across gates proportionally based on the number of sub-concepts in each gate.
+Each lesson must fit within ${sessionDuration || 40} minutes.
+You MUST also generate a socratic_script for EVERY lesson in step7_socratic_scripts (one entry per lesson_number).
+Generate at least 2 diagnostic questions per lesson in step8_diagnostic_questions.`;
+  }
+
   return {
-    system: SYSTEM_PROMPT + '\n\n' + JSON_OUTPUT_DIRECTIVE,
+    system: SYSTEM_PROMPT + timetableConstraint + '\n\n' + JSON_OUTPUT_DIRECTIVE,
     user: `Here is the syllabus to deconstruct:\n\n${syllabusText}`,
   };
 }

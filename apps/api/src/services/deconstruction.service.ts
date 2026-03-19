@@ -24,6 +24,8 @@ export class DeconstructionService {
     courseId: string,
     syllabusText: string,
     onProgress?: (step: number, name: string, status: string) => void,
+    totalSessions?: number,
+    sessionDuration?: number,
   ): Promise<void> {
     // Emit all steps as pending
     for (let i = 0; i < STEP_NAMES.length; i++) {
@@ -33,7 +35,7 @@ export class DeconstructionService {
     // Single LLM call for all 10 steps
     onProgress?.(1, STEP_NAMES[0], 'processing');
 
-    const { system, user } = buildDeconstructionPrompt(syllabusText);
+    const { system, user } = buildDeconstructionPrompt(syllabusText, totalSessions, sessionDuration);
 
     let rawResponse: string;
     try {

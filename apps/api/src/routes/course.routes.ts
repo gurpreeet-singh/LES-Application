@@ -197,9 +197,13 @@ router.post('/:id/process', requireRole('teacher'), async (req: Request, res: Re
     const provider = createLLMProvider(course.llm_provider || 'anthropic');
     const service = new DeconstructionService(provider, supabaseAdmin);
 
-    await service.processSyllabus(course.id, course.syllabus_text, (step, name, status) => {
-      sendEvent({ type: 'step', step, name, status });
-    });
+    await service.processSyllabus(
+      course.id,
+      course.syllabus_text,
+      (step, name, status) => { sendEvent({ type: 'step', step, name, status }); },
+      course.total_sessions || undefined,
+      course.session_duration_minutes || undefined,
+    );
 
     sendEvent({ type: 'complete' });
   } catch (err: unknown) {
