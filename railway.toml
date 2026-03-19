@@ -3,7 +3,7 @@ builder = "NIXPACKS"
 buildCommand = "echo 'Skip build — using tsx runtime'"
 
 [deploy]
-startCommand = "cd apps/api && npx tsx src/demo-server.ts"
+startCommand = "cd apps/api && npx tsx src/index.ts"
 healthcheckPath = "/health"
 healthcheckTimeout = 300
 restartPolicyType = "ON_FAILURE"

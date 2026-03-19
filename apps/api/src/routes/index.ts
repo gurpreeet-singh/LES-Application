@@ -19,5 +19,6 @@ router.use('/courses/:courseId/questions', authenticate, questionRoutes);
 router.use('/courses/:courseId/analytics', authenticate, analyticsRoutes);
 router.use('/courses/:courseId/suggestions', authenticate, suggestionRoutes);
 router.use('/students/:studentId/progress', authenticate, progressRoutes);
+router.use('/courses/:courseId/lessons/:lessonId', authenticate, progressRoutes);
 
 export default router;

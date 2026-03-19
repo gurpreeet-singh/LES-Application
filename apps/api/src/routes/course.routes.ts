@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { requireRole } from '../middleware/role.js';
 import { supabaseAdmin } from '../config/supabase.js';
 import { DeconstructionService } from '../services/deconstruction.service.js';
+import { QuizGenerationService } from '../services/quiz-generation.service.js';
 import { createLLMProvider } from '../services/llm/provider.js';
 import { SessionPlannerService } from '../services/session-planner.service.js';
 
@@ -204,6 +205,19 @@ router.post('/:id/process', requireRole('teacher'), async (req: Request, res: Re
       course.total_sessions || undefined,
       course.session_duration_minutes || undefined,
     );
+
+    // Generate quizzes for each lesson
+    sendEvent({ type: 'step', step: 11, name: 'Generating Quiz Questions', status: 'processing' });
+    try {
+      const quizService = new QuizGenerationService(provider, supabaseAdmin);
+      await quizService.generateQuizzesForCourse(course.id, (msg) => {
+        sendEvent({ type: 'step', step: 11, name: msg, status: 'processing' });
+      });
+      sendEvent({ type: 'step', step: 11, name: 'Quiz Questions Generated', status: 'complete' });
+    } catch (quizErr) {
+      console.error('Quiz generation failed (non-fatal):', quizErr);
+      sendEvent({ type: 'step', step: 11, name: 'Quiz generation skipped', status: 'complete' });
+    }
 
     sendEvent({ type: 'complete' });
   } catch (err: unknown) {

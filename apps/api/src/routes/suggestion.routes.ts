@@ -1,6 +1,8 @@
 import { Router, Request, Response } from 'express';
 import { supabaseAdmin } from '../config/supabase.js';
 import { requireRole } from '../middleware/role.js';
+import { createLLMProvider } from '../services/llm/provider.js';
+import { AdaptiveSuggestionService } from '../services/adaptive-suggestion.service.js';
 
 const router = Router({ mergeParams: true });
 
@@ -55,26 +57,78 @@ router.put('/:id', requireRole('teacher'), async (req: Request, res: Response) =
 router.get('/adaptive', requireRole('teacher'), async (req: Request, res: Response) => {
   const courseId = req.params.courseId;
 
-  // Get actual suggestions from DB
+  // Check if we should generate fresh suggestions (query param ?refresh=true)
+  const shouldRefresh = req.query.refresh === 'true';
+
+  // Get existing suggestions from DB
   const { data: dbSuggestions } = await supabaseAdmin
     .from('ai_suggestions')
     .select('*')
     .eq('course_id', courseId)
     .order('generated_at', { ascending: false });
 
-  // Get course info for context
   const { data: course } = await supabaseAdmin
     .from('courses')
-    .select('total_sessions')
+    .select('total_sessions, llm_provider')
     .eq('id', courseId)
     .single();
 
-  // Transform DB suggestions into adaptive format
+  // If refresh requested or no suggestions exist, generate new ones via AI
+  if (shouldRefresh || !dbSuggestions || dbSuggestions.length === 0) {
+    try {
+      const provider = createLLMProvider(course?.llm_provider || undefined);
+      const service = new AdaptiveSuggestionService(provider, supabaseAdmin);
+      const aiSuggestions = await service.generateSuggestions(courseId);
+
+      // Re-fetch from DB after generation
+      const { data: freshSuggestions } = await supabaseAdmin
+        .from('ai_suggestions')
+        .select('*')
+        .eq('course_id', courseId)
+        .order('generated_at', { ascending: false });
+
+      const suggestions = (freshSuggestions || aiSuggestions).map((s: any) => ({
+        id: s.id || `gen-${Date.now()}`,
+        type: s.type,
+        priority: s.priority || (s.type === 'remediation' ? 'high' : s.type === 'lesson_refine' ? 'medium' : 'low'),
+        affects_sessions: s.affects_sessions || (s.tag ? s.tag.split(',').map(Number).filter(Boolean) : []),
+        title: s.title,
+        reason: s.reason || s.description,
+        affected_students: s.affected_students || [],
+        current: s.current || null,
+        proposed: s.proposed || { key_changes: [s.description || s.reason || ''] },
+        status: s.status || 'pending',
+        teacher_notes: s.teacher_edit || s.teacher_notes || null,
+      }));
+
+      // Get history (resolved suggestions)
+      const history = (freshSuggestions || [])
+        .filter((s: any) => s.status !== 'pending')
+        .map((s: any) => ({
+          id: s.id, type: s.type, title: s.title,
+          status: s.status, resolved_at: s.resolved_at,
+          outcome: s.rationale || 'Applied to upcoming sessions',
+        }));
+
+      res.json({
+        analysis_based_on: 'Latest student assessment data',
+        generated_at: new Date().toISOString(),
+        current_session: Math.floor((course?.total_sessions || 30) * 0.6),
+        suggestions: suggestions.filter((s: any) => s.status === 'pending'),
+        history,
+      });
+      return;
+    } catch (err) {
+      console.error('Adaptive suggestion generation error:', err);
+    }
+  }
+
+  // Return existing DB suggestions
   const suggestions = (dbSuggestions || []).map(s => ({
     id: s.id,
     type: s.type,
     priority: s.type === 'remediation' ? 'high' : s.type === 'lesson_refine' ? 'medium' : 'low',
-    affects_sessions: [],
+    affects_sessions: s.tag ? s.tag.split(',').map(Number).filter(Boolean) : [],
     title: s.title,
     reason: s.description,
     affected_students: [],
@@ -84,19 +138,21 @@ router.get('/adaptive', requireRole('teacher'), async (req: Request, res: Respon
     teacher_notes: s.teacher_edit,
   }));
 
-  // If no DB suggestions yet, return helpful placeholder suggestions
-  if (suggestions.length === 0) {
-    suggestions.push(
-      { id: 'auto-1', type: 'lesson_refine', priority: 'medium', affects_sessions: [], title: 'AI suggestions will appear here after students complete quizzes', reason: 'The AI analyzes student performance after each session and generates actionable suggestions to improve upcoming lesson plans.', affected_students: [], current: null, proposed: { key_changes: ['Suggestions are generated automatically based on quiz scores, Bloom level gaps, and misconception patterns'] }, status: 'pending', teacher_notes: null },
-    );
-  }
+  const pending = suggestions.filter(s => s.status === 'pending');
+  const history = suggestions.filter(s => s.status !== 'pending').map(s => ({
+    id: s.id, type: s.type, title: s.title, status: s.status, resolved_at: null, outcome: '',
+  }));
 
   res.json({
-    analysis_based_on: 'Latest session results',
+    analysis_based_on: 'Latest student assessment data',
     generated_at: new Date().toISOString(),
     current_session: Math.floor((course?.total_sessions || 30) * 0.6),
-    suggestions,
-    history: [],
+    suggestions: pending.length > 0 ? pending : [{
+      id: 'placeholder', type: 'lesson_refine', priority: 'medium', affects_sessions: [], title: 'AI suggestions will appear after student assessments are graded',
+      reason: 'Grade at least one session\'s quiz to enable AI-driven suggestions based on real student performance data.',
+      affected_students: [], current: null, proposed: { key_changes: ['Complete grading to activate AI suggestions'] }, status: 'pending', teacher_notes: null,
+    }],
+    history,
   });
 });
 
