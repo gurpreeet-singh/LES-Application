@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { supabaseAdmin } from '../config/supabase.js';
 import { authenticate } from '../middleware/auth.js';
+import { seedDemoCourse } from '../services/demo-seeder.service.js';
 
 const router = Router();
 
@@ -55,6 +56,15 @@ router.post('/signup', async (req: Request, res: Response) => {
   if (signInError) {
     res.status(500).json({ error: 'Account created but failed to sign in' });
     return;
+  }
+
+  // Seed demo course for new teacher accounts (non-blocking)
+  if (role === 'teacher') {
+    seedDemoCourse(supabaseAdmin, data.user.id).then(courseId => {
+      console.log(`Demo course seeded for ${email}: ${courseId}`);
+    }).catch(err => {
+      console.error(`Demo seed failed for ${email}:`, err.message);
+    });
   }
 
   res.status(201).json({
