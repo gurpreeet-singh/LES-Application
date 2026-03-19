@@ -204,6 +204,7 @@ export function CourseDetailPage() {
                     <Link to={`/teacher/courses/${courseId}/analytics`} className="btn-primary block w-full text-center">Class Analytics</Link>
                     <button onClick={() => setTab('kg')} className="btn-secondary block w-full">View Knowledge Graph</button>
                     <button onClick={() => setTab('lessons')} className="btn-secondary block w-full">View Lessons</button>
+                    <Link to={`/teacher/courses/${courseId}/students`} className="btn-secondary block w-full text-center">Manage Students</Link>
                     {hasTimetable && (
                       <button onClick={() => setTab('timetable')} className="btn-secondary block w-full">View Timetable</button>
                     )}

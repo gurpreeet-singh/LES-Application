@@ -561,6 +561,72 @@ app.post('/api/v1/courses/:courseId/suggestions/apply-all', (_req, res) => {
   res.json({ applied: accepted.length, message: `${accepted.length} suggestions applied. Timetable updated for Sessions 19-30.` });
 });
 
+// Student management
+const courseStudents: Record<string, any[]> = {
+  'course-001': MOCK_STUDENTS.map((s, i) => ({
+    id: s.id, full_name: s.full_name, email: s.email, roll_number: String(i + 1).padStart(2, '0'),
+    class_section: s.class_section, phone: `98765432${10 + i}`, parent_name: `Parent of ${s.full_name}`, parent_phone: `98765433${10 + i}`,
+  })),
+};
+
+app.get('/api/v1/courses/:courseId/students', (req, res) => {
+  res.json({ students: courseStudents[req.params.courseId] || [] });
+});
+
+app.post('/api/v1/courses/:courseId/students', (req, res) => {
+  const { full_name, email, roll_number, phone, parent_name, parent_phone } = req.body;
+  const student = { id: `student-new-${Date.now()}`, full_name, email, roll_number, class_section: '5B', phone, parent_name, parent_phone };
+  if (!courseStudents[req.params.courseId]) courseStudents[req.params.courseId] = [];
+  courseStudents[req.params.courseId].push(student);
+  res.json({ student });
+});
+
+app.post('/api/v1/courses/:courseId/students/upload', (req, res) => {
+  const rows = req.body.students || [];
+  const newStudents = rows.map((r: any, i: number) => ({
+    id: `student-csv-${Date.now()}-${i}`, full_name: r.name || r.full_name || '', email: r.email || '',
+    roll_number: r.roll_number || '', class_section: `${r.class || '5'}${r.section || 'B'}`,
+    phone: r.phone || '', parent_name: r.parent_name || '', parent_phone: r.parent_phone || '',
+  }));
+  if (!courseStudents[req.params.courseId]) courseStudents[req.params.courseId] = [];
+  courseStudents[req.params.courseId].push(...newStudents);
+  res.json({ students: newStudents, count: newStudents.length });
+});
+
+// Answer sheet grading (mock AI)
+app.post('/api/v1/courses/:courseId/lessons/:lessonId/grade', (req, res) => {
+  const students = courseStudents[req.params.courseId] || MOCK_STUDENTS.map((s, i) => ({
+    id: s.id, full_name: s.full_name, roll_number: String(i + 1).padStart(2, '0'),
+  }));
+  const lessonQuestions = MOCK_QUESTIONS.filter((q: any) => q.lesson_id === req.params.lessonId);
+  const marksPerType: Record<string, number> = { mcq: 2, true_false: 1, short_answer: 4, open_ended: 5 };
+
+  const grades = students.map((s: any) => {
+    const answers = lessonQuestions.map((q: any, qi: number) => {
+      const maxScore = marksPerType[q.question_type] || 2;
+      const isCorrect = Math.random() > 0.3;
+      const score = isCorrect ? maxScore : (q.question_type === 'short_answer' || q.question_type === 'open_ended' ? Math.floor(Math.random() * maxScore) : 0);
+      return {
+        question_id: q.id, question_num: qi + 1,
+        answer: isCorrect ? (q.correct_answer || 'Correct answer') : 'Student answer',
+        is_correct: isCorrect, score, max_score: maxScore,
+        ai_feedback: !isCorrect && (q.question_type === 'short_answer' || q.question_type === 'open_ended') ? 'Partial understanding shown but missing key concept' : undefined,
+      };
+    });
+    return {
+      student_id: s.id, student_name: s.full_name, roll_number: s.roll_number || '—',
+      answers, total_score: answers.reduce((a: number, ans: any) => a + ans.score, 0),
+      max_score: answers.reduce((a: number, ans: any) => a + ans.max_score, 0), status: 'graded' as const,
+    };
+  });
+
+  res.json({ grades });
+});
+
+app.get('/api/v1/courses/:courseId/lessons/:lessonId/grades', (_req, res) => {
+  res.json({ grades: [] });
+});
+
 app.listen(3001, () => {
   console.log('');
   console.log('  LES Platform — Demo Mode');

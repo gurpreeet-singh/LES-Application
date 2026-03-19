@@ -3,6 +3,8 @@ import { useParams, Link } from 'react-router-dom';
 import { api } from '../../lib/api';
 import { BloomBadge } from '../../components/shared/BloomBadge';
 import { SkeletonPage } from '../../components/shared/LoadingSkeleton';
+import { generateQuizSheetPDF, generateAnswerKeyPDF } from '../../lib/quizPdfGenerator';
+import { useAuth } from '../../context/AuthContext';
 
 type Tab = 'plan' | 'socratic' | 'quiz';
 
@@ -60,6 +62,7 @@ ${q.correct_answer ? `<br/><em>Answer:</em> ${q.correct_answer}` : ''}</div>`).j
 
 export function LessonDetailPage() {
   const { courseId, lessonId } = useParams<{ courseId: string; lessonId: string }>();
+  const { profile } = useAuth();
   const [tab, setTab] = useState<Tab>('plan');
   const [lesson, setLesson] = useState<any>(null);
   const [questions, setQuestions] = useState<any[]>([]);
@@ -324,8 +327,22 @@ export function LessonDetailPage() {
                   <p className="text-[11px] text-gray-500 mt-0.5">{questions.length} questions across Bloom levels</p>
                 </div>
                 <div className="flex gap-2">
-                  <button onClick={handleDownloadCSV} className="btn-secondary text-[11px] py-1.5">📊 Download CSV/Excel</button>
-                  <button onClick={handleDownloadPDF} className="btn-primary text-[11px] py-1.5">📄 Download PDF</button>
+                  <button onClick={() => generateQuizSheetPDF(questions, {
+                    lessonNumber: lesson.lesson_number, lessonTitle: lesson.title,
+                    gateName: gate ? `G${gate.gate_number}: ${gate.short_title}` : '', gateColor: gate?.color || '#1B3A6B',
+                    subject: 'Mathematics', classLevel: '5', section: 'B',
+                    teacherName: profile?.full_name || 'Teacher', schoolName: 'La Martiniere Girls\' College',
+                    duration: lesson.duration_minutes || 40,
+                  })} className="btn-primary text-[11px] py-1.5">🖨️ Print Quiz Sheet</button>
+                  <button onClick={() => generateAnswerKeyPDF(questions, {
+                    lessonNumber: lesson.lesson_number, lessonTitle: lesson.title,
+                    gateName: gate ? `G${gate.gate_number}: ${gate.short_title}` : '', gateColor: gate?.color || '#1B3A6B',
+                    subject: 'Mathematics', classLevel: '5', section: 'B',
+                    teacherName: profile?.full_name || 'Teacher', schoolName: 'La Martiniere Girls\' College',
+                    duration: lesson.duration_minutes || 40,
+                  })} className="btn-secondary text-[11px] py-1.5">🔑 Answer Key</button>
+                  <button onClick={handleDownloadCSV} className="btn-secondary text-[11px] py-1.5">📊 CSV/Excel</button>
+                  <Link to={`/teacher/courses/${courseId}/lessons/${lessonId}/grade`} className="btn-secondary text-[11px] py-1.5">📷 Upload Answer Sheets</Link>
                 </div>
               </div>
 

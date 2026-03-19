@@ -16,6 +16,8 @@ import { ReviewContentPage } from './pages/teacher/ReviewContentPage';
 import { ClassAnalyticsPage } from './pages/teacher/ClassAnalyticsPage';
 import { PlatformGuidePage } from './pages/teacher/PlatformGuidePage';
 import { LessonDetailPage } from './pages/teacher/LessonDetailPage';
+import { StudentsPage } from './pages/teacher/StudentsPage';
+import { GradeAnswerSheetsPage } from './pages/teacher/GradeAnswerSheetsPage';
 
 // Student pages
 import { StudentDashboardPage } from './pages/student/DashboardPage';
@@ -50,6 +52,8 @@ export default function App() {
               <Route path="/teacher/courses/:courseId/review" element={<ReviewContentPage />} />
               <Route path="/teacher/courses/:courseId/analytics" element={<ClassAnalyticsPage />} />
               <Route path="/teacher/courses/:courseId/lessons/:lessonId" element={<LessonDetailPage />} />
+              <Route path="/teacher/courses/:courseId/lessons/:lessonId/grade" element={<GradeAnswerSheetsPage />} />
+              <Route path="/teacher/courses/:courseId/students" element={<StudentsPage />} />
               <Route path="/teacher/guide" element={<PlatformGuidePage />} />
             </Route>
 
