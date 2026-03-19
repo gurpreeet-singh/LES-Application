@@ -6,7 +6,7 @@ const STEPS = [
     icon: '🚀',
     title: 'Your AI Teaching Co-Pilot',
     color: '#1B3A6B',
-    content: 'The Learning Execution System transforms how you plan, deliver, and adapt your teaching — powered by AI, guided by you. It\'s not just another LMS. It\'s an intelligent platform that understands the knowledge architecture of your subject and helps you deliver every session effectively.',
+    content: 'The Learning Effectiveness System transforms how you plan, deliver, and adapt your teaching — powered by AI, guided by you. It\'s not just another LMS. It\'s an intelligent platform that understands the knowledge architecture of your subject and helps you deliver every session effectively.',
     deeper: 'The AI analyzes your syllabus, creates a complete lesson plan for every session, generates Socratic teaching scripts, builds quizzes with 10+ questions per lesson, and continuously adapts based on student performance. You remain in full control — review, modify, and approve everything before it reaches students.\n\nWhat this means for you: You go from "I have a syllabus" to "I have 30 fully planned sessions with lesson plans, teaching scripts, and quizzes" — in minutes, not weeks.',
   },
   {
@@ -96,7 +96,7 @@ export function PlatformGuidePage() {
         <img src="/lmgc-logo.jpeg" alt="LMGC" className="h-12 w-auto" />
         <div className="ml-2">
           <h1 className="text-xl font-black text-les-navy">Platform Guide</h1>
-          <p className="text-[11px] text-gray-400">How the Learning Execution System empowers your teaching</p>
+          <p className="text-[11px] text-gray-400">How the Learning Effectiveness System empowers your teaching</p>
         </div>
       </div>
 

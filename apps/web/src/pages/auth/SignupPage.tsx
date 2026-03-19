@@ -30,7 +30,7 @@ export function SignupPage() {
     <div className="min-h-screen flex items-center justify-center bg-gray-50">
       <div className="bg-white p-8 rounded-2xl shadow-sm border border-gray-200 w-full max-w-md">
         <h1 className="text-2xl font-bold text-gray-900 mb-1">Create account</h1>
-        <p className="text-sm text-gray-500 mb-6">Join the Learning Execution System</p>
+        <p className="text-sm text-gray-500 mb-6">Join the Learning Effectiveness System</p>
 
         {error && (
           <div className="bg-red-50 text-red-700 text-sm p-3 rounded-lg mb-4">{error}</div>

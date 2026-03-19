@@ -69,7 +69,7 @@ class OpenRouterProvider implements LLMProvider {
       apiKey: env.OPENROUTER_API_KEY,
       defaultHeaders: {
         'HTTP-Referer': env.FRONTEND_URL,
-        'X-Title': 'LES Platform - Learning Execution System',
+        'X-Title': 'LES Platform - Learning Effectiveness System',
       },
     });
 

@@ -5,7 +5,7 @@ export function LandingPage() {
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
       <div className="max-w-2xl text-center px-6">
         <h1 className="text-4xl font-bold text-gray-900 mb-4">
-          Learning Execution System
+          Learning Effectiveness System
         </h1>
         <p className="text-lg text-gray-600 mb-2">
           A cognitive operating system for learning

@@ -40,7 +40,7 @@ export function LoginPage() {
             <div className="w-px h-10 bg-gray-200" />
             <img src="/lmgc-logo.jpeg" alt="LMGC" className="h-14 w-auto object-contain" />
           </div>
-          <h1 className="text-lg font-black text-les-navy mb-0.5">Learning Execution System</h1>
+          <h1 className="text-lg font-black text-les-navy mb-0.5">Learning Effectiveness System</h1>
           <p className="text-[11px] text-gray-400">Powered by Ikigai School of AI</p>
         </div>
 
