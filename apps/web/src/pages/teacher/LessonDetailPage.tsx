@@ -83,6 +83,20 @@ export function LessonDetailPage() {
     });
   }, [courseId, lessonId]);
 
+  const [generatingQuiz, setGeneratingQuiz] = useState(false);
+
+  const handleGenerateQuiz = async () => {
+    setGeneratingQuiz(true);
+    try {
+      const result = await api.post<{ questions: any[] }>(`/courses/${courseId}/questions/generate/${lessonId}`);
+      setQuestions(prev => [...prev, ...(result.questions || [])]);
+      setTab('quiz');
+    } catch (err) {
+      // Error handled by api.ts toast
+    }
+    setGeneratingQuiz(false);
+  };
+
   if (loading || !lesson) return <SkeletonPage />;
 
   const currentIdx = allLessons.findIndex((l: any) => l.id === lessonId);
@@ -316,8 +330,13 @@ export function LessonDetailPage() {
       {tab === 'quiz' && (
         <div className="fade-in">
           {questions.length === 0 ? (
-            <div className="card p-8 text-center text-gray-500">
-              No quiz questions available for this lesson.
+            <div className="card p-8 text-center">
+              <div className="text-3xl mb-3">📝</div>
+              <p className="text-sm font-bold text-gray-700 mb-1">No quiz generated yet for this session</p>
+              <p className="text-[12px] text-gray-500 mb-4">AI will generate 10 questions tailored to this lesson, adapted based on past student performance.</p>
+              <button onClick={handleGenerateQuiz} disabled={generatingQuiz} className="btn-primary">
+                {generatingQuiz ? '🤖 Generating Quiz...' : '🤖 Generate Quiz for This Session'}
+              </button>
             </div>
           ) : (
             <div className="space-y-3">
@@ -326,7 +345,11 @@ export function LessonDetailPage() {
                   <h3 className="section-header">Quiz — {gate?.short_title || 'Assessment'}</h3>
                   <p className="text-[11px] text-gray-500 mt-0.5">{questions.length} questions across Bloom levels</p>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex gap-2 flex-wrap">
+                  <Link to={`/teacher/courses/${courseId}/lessons/${lessonId}/scores`} className="btn-primary text-[11px] py-1.5">📊 Enter Scores</Link>
+                  <button onClick={handleGenerateQuiz} disabled={generatingQuiz} className="btn-secondary text-[11px] py-1.5">
+                    {generatingQuiz ? '🤖 Generating...' : '🔄 Regenerate Quiz'}
+                  </button>
                   <button onClick={() => generateQuizSheetPDF(questions, {
                     lessonNumber: lesson.lesson_number, lessonTitle: lesson.title,
                     gateName: gate ? `G${gate.gate_number}: ${gate.short_title}` : '', gateColor: gate?.color || '#1B3A6B',

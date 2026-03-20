@@ -98,6 +98,23 @@ router.post('/login', async (req: Request, res: Response) => {
   });
 });
 
+// POST /auth/refresh
+router.post('/refresh', async (req: Request, res: Response) => {
+  const { refresh_token } = req.body;
+  if (!refresh_token) {
+    res.status(400).json({ error: 'refresh_token is required' });
+    return;
+  }
+
+  const { data, error } = await supabaseAdmin.auth.refreshSession({ refresh_token });
+  if (error || !data.session) {
+    res.status(401).json({ error: 'Failed to refresh session' });
+    return;
+  }
+
+  res.json({ session: data.session });
+});
+
 // POST /auth/logout
 router.post('/logout', authenticate, async (req: Request, res: Response) => {
   if (req.accessToken) {

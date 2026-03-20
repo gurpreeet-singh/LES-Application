@@ -1,6 +1,7 @@
 import express from 'express';
 import { corsMiddleware } from './config/cors.js';
 import { errorHandler } from './middleware/error.js';
+import { generalLimit } from './middleware/rate-limit.js';
 import routes from './routes/index.js';
 import { env } from './config/env.js';
 
@@ -9,6 +10,7 @@ const app = express();
 // Middleware
 app.use(corsMiddleware);
 app.use(express.json({ limit: '10mb' }));
+app.use(generalLimit);
 
 // Health check
 app.get('/health', (_req, res) => {

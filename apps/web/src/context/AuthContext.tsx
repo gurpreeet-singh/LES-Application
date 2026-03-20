@@ -1,11 +1,11 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from 'react';
 import { api } from '../lib/api';
 import type { Profile } from '@les/shared';
 
 interface AuthState {
   user: { id: string } | null;
   profile: Profile | null;
-  session: { access_token: string } | null;
+  session: { access_token: string; refresh_token?: string } | null;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (email: string, password: string, fullName: string, role: string) => Promise<void>;
@@ -15,17 +15,13 @@ interface AuthState {
 
 const AuthContext = createContext<AuthState | null>(null);
 
-// Auto-detect: if API URL contains 'localhost', use demo mode
-const API_URL = import.meta.env.VITE_API_URL || '';
-const DEMO_MODE = API_URL.includes('localhost') || API_URL === '' || API_URL.includes('127.0.0.1');
-
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<{ id: string } | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
-  const [session, setSession] = useState<{ access_token: string } | null>(null);
+  const [session, setSession] = useState<{ access_token: string; refresh_token?: string } | null>(null);
   const [loading, setLoading] = useState(true);
 
-  async function fetchProfile() {
+  const fetchProfile = useCallback(async () => {
     try {
       const data = await api.get<{ profile: Profile }>('/auth/me');
       setProfile(data.profile);
@@ -34,8 +30,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setProfile(null);
       return null;
     }
-  }
+  }, []);
 
+  const saveSession = useCallback((data: { user?: any; session?: any }) => {
+    if (data.user) setUser(data.user);
+    if (data.session) setSession(data.session);
+    localStorage.setItem('les_demo_session', JSON.stringify(data));
+  }, []);
+
+  // Restore session on mount
   useEffect(() => {
     const stored = localStorage.getItem('les_demo_session');
     if (stored) {
@@ -51,30 +54,45 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } else {
       setLoading(false);
     }
-  }, []);
+  }, [fetchProfile]);
+
+  // Auto-refresh token before expiry
+  useEffect(() => {
+    if (!session?.access_token) return;
+
+    try {
+      const payload = JSON.parse(atob(session.access_token.split('.')[1]));
+      const expiresAt = payload.exp * 1000;
+      const refreshIn = expiresAt - Date.now() - 5 * 60 * 1000; // 5 min before expiry
+
+      if (refreshIn <= 0) return; // Already expired or too close
+
+      const timer = setTimeout(async () => {
+        if (session.refresh_token) {
+          try {
+            const data = await api.post<{ session: any }>('/auth/refresh', { refresh_token: session.refresh_token });
+            if (data.session) {
+              saveSession({ user, session: data.session });
+            }
+          } catch {
+            // Refresh failed — user will be prompted to login on next API call
+          }
+        }
+      }, refreshIn);
+
+      return () => clearTimeout(timer);
+    } catch { /* invalid token format */ }
+  }, [session, user, saveSession]);
 
   const signIn = async (email: string, password: string) => {
-    if (DEMO_MODE) {
-      const data = await api.post<{ user: { id: string }; session: { access_token: string } }>('/auth/login', { email, password });
-      setUser(data.user);
-      setSession(data.session);
-      localStorage.setItem('les_demo_session', JSON.stringify(data));
-      await fetchProfile();
-    } else {
-      // Real Supabase auth
-      const data = await api.post<{ user: { id: string }; session: { access_token: string } }>('/auth/login', { email, password });
-      setUser(data.user);
-      setSession(data.session);
-      localStorage.setItem('les_demo_session', JSON.stringify(data));
-      await fetchProfile();
-    }
+    const data = await api.post<{ user: { id: string }; session: { access_token: string; refresh_token?: string } }>('/auth/login', { email, password });
+    saveSession(data);
+    await fetchProfile();
   };
 
   const signUp = async (email: string, password: string, fullName: string, role: string) => {
-    const data = await api.post<{ user: { id: string }; session: { access_token: string } }>('/auth/signup', { email, password, full_name: fullName, role });
-    setUser(data.user);
-    setSession(data.session);
-    localStorage.setItem('les_demo_session', JSON.stringify(data));
+    const data = await api.post<{ user: { id: string }; session: { access_token: string; refresh_token?: string } }>('/auth/signup', { email, password, full_name: fullName, role });
+    saveSession(data);
     await fetchProfile();
   };
 

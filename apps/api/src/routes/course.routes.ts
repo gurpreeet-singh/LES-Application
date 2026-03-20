@@ -206,19 +206,7 @@ router.post('/:id/process', requireRole('teacher'), async (req: Request, res: Re
       course.session_duration_minutes || undefined,
     );
 
-    // Generate quizzes for each lesson
-    sendEvent({ type: 'step', step: 11, name: 'Generating Quiz Questions', status: 'processing' });
-    try {
-      const quizService = new QuizGenerationService(provider, supabaseAdmin);
-      await quizService.generateQuizzesForCourse(course.id, (msg) => {
-        sendEvent({ type: 'step', step: 11, name: msg, status: 'processing' });
-      });
-      sendEvent({ type: 'step', step: 11, name: 'Quiz Questions Generated', status: 'complete' });
-    } catch (quizErr) {
-      console.error('Quiz generation failed (non-fatal):', quizErr);
-      sendEvent({ type: 'step', step: 11, name: 'Quiz generation skipped', status: 'complete' });
-    }
-
+    // Quizzes are generated per-lesson on demand (not batch)
     sendEvent({ type: 'complete' });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';

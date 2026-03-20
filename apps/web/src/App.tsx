@@ -18,6 +18,7 @@ import { PlatformGuidePage } from './pages/teacher/PlatformGuidePage';
 import { LessonDetailPage } from './pages/teacher/LessonDetailPage';
 import { StudentsPage } from './pages/teacher/StudentsPage';
 import { GradeAnswerSheetsPage } from './pages/teacher/GradeAnswerSheetsPage';
+import { ScoreEntryPage } from './pages/teacher/ScoreEntryPage';
 
 // Student pages
 import { StudentDashboardPage } from './pages/student/DashboardPage';
@@ -53,6 +54,7 @@ export default function App() {
               <Route path="/teacher/courses/:courseId/analytics" element={<ClassAnalyticsPage />} />
               <Route path="/teacher/courses/:courseId/lessons/:lessonId" element={<LessonDetailPage />} />
               <Route path="/teacher/courses/:courseId/lessons/:lessonId/grade" element={<GradeAnswerSheetsPage />} />
+              <Route path="/teacher/courses/:courseId/lessons/:lessonId/scores" element={<ScoreEntryPage />} />
               <Route path="/teacher/courses/:courseId/students" element={<StudentsPage />} />
               <Route path="/teacher/guide" element={<PlatformGuidePage />} />
             </Route>

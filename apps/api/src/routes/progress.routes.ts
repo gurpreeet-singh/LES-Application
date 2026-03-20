@@ -137,6 +137,51 @@ router.post('/attempt', async (req: Request, res: Response) => {
   res.json({ attempt: { ...attempt, ai_feedback } });
 });
 
+// POST /courses/:courseId/lessons/:lessonId/scores — Manual score entry from teacher
+router.post('/scores', requireRole('teacher'), async (req: Request, res: Response) => {
+  const { scores: studentScores } = req.body;
+  if (!Array.isArray(studentScores)) {
+    res.status(400).json({ error: 'scores array required' });
+    return;
+  }
+
+  let savedCount = 0;
+  for (const entry of studentScores) {
+    const { student_id, question_scores } = entry;
+    if (!student_id || !Array.isArray(question_scores)) continue;
+
+    for (const qs of question_scores) {
+      await supabaseAdmin.from('question_attempts').insert({
+        student_id,
+        question_id: qs.question_id,
+        gate_id: qs.gate_id || '',
+        answer_text: `Score: ${qs.score}`,
+        is_correct: qs.score > 0,
+        score: qs.score,
+        bloom_level_demonstrated: 'remember',
+      });
+      savedCount++;
+    }
+
+    // Get the gate_id from first question
+    if (question_scores.length > 0) {
+      const { data: q } = await supabaseAdmin.from('questions').select('gate_id, course_id').eq('id', question_scores[0].question_id).single();
+      if (q) {
+        const totalScore = question_scores.reduce((a: number, qs: any) => a + (qs.score || 0), 0);
+        const maxPossible = question_scores.length * 5; // approximate
+        const pct = Math.round((totalScore / maxPossible) * 100);
+        await supabaseAdmin.from('student_gate_progress').upsert({
+          student_id, gate_id: q.gate_id, course_id: q.course_id,
+          mastery_pct: Math.min(100, pct), is_unlocked: true,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: 'student_id,gate_id' });
+      }
+    }
+  }
+
+  res.json({ saved: savedCount, message: `Scores saved for ${studentScores.length} students.` });
+});
+
 // POST /courses/:courseId/lessons/:lessonId/grade — Bulk grade a session (teacher submits scores)
 router.post('/grade', requireRole('teacher'), async (req: Request, res: Response) => {
   const { student_scores } = req.body;
