@@ -198,12 +198,7 @@ export function LandingPage() {
         </p>
       </div>
 
-      {/* Footer */}
-      <div className="text-center pb-6">
-        <p className="text-[11px] text-gray-300">
-          Built by Nandan Mishra & Abhay Pandey | Ikigai School of AI
-        </p>
-      </div>
+      <div className="pb-6" />
     </div>
   );
 }
