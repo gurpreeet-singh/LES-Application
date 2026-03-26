@@ -10,6 +10,7 @@ import suggestionRoutes from './suggestion.routes.js';
 import studentRoutes from './student.routes.js';
 import adminRoutes from './admin.routes.js';
 import programRoutes from './program.routes.js';
+import presentationRoutes from './presentation.routes.js';
 import { authenticate } from '../middleware/auth.js';
 import { llmLimit } from '../middleware/rate-limit.js';
 
@@ -27,5 +28,7 @@ router.use('/courses/:courseId/suggestions', authenticate, suggestionRoutes);
 router.use('/courses/:courseId/students', authenticate, studentRoutes);
 router.use('/students/:studentId/progress', authenticate, progressRoutes);
 router.use('/courses/:courseId/lessons/:lessonId', authenticate, progressRoutes);
+router.use('/courses/:courseId/lessons/:lessonId/media', authenticate, presentationRoutes);
+router.use('/courses/:courseId/media', authenticate, presentationRoutes);
 
 export default router;

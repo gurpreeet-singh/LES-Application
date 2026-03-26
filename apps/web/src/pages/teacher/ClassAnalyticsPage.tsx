@@ -108,30 +108,35 @@ export function ClassAnalyticsPage() {
   const isCollege = profile?.school === 'Horizon University College' || profile?.email?.includes('college') || profile?.email?.includes('university');
 
   useEffect(() => {
-    Promise.all([
-      api.get<{ course: Course }>(`/courses/${courseId}`),
-      api.get<SessionAnalytics>(`/courses/${courseId}/analytics/sessions`),
-      api.get<HeatmapData>(`/courses/${courseId}/analytics/heatmap`),
-      api.get<{ risks: DependencyRisk[] }>(`/courses/${courseId}/analytics/dependency-risk`),
-      api.get<{ suggestions: AISuggestion[] }>(`/courses/${courseId}/suggestions`),
-      api.get<{ students: any[] }>(`/courses/${courseId}/analytics/attention`),
-      api.get<AdaptiveData>(`/courses/${courseId}/suggestions/adaptive`),
-    ]).then(([c, sa, h, r, s, a, ad]) => {
-      setCourse(c.course);
-      setSessionAnalytics(sa);
-      setHeatmap(h);
-      setRisks(r.risks);
-      setSuggestions(s.suggestions);
-      setAttention(a.students);
-      setAdaptiveData(ad);
-      if (h.gates.length > 0) setSelGate(h.gates[0].id);
-      setLoading(false);
-
-      // Fetch cross-course context for college teachers
-      if (isCollege) {
-        api.get<CrossCourseContext>('/programs/prog-default/kg').then(setCrossCourse).catch(() => {});
+    // Fetch each independently so one failure doesn't block the rest
+    const fetchData = async () => {
+      try {
+        const [c, sa, h] = await Promise.all([
+          api.get<{ course: Course }>(`/courses/${courseId}`),
+          api.get<SessionAnalytics>(`/courses/${courseId}/analytics/sessions`),
+          api.get<HeatmapData>(`/courses/${courseId}/analytics/heatmap`),
+        ]);
+        setCourse(c.course);
+        setSessionAnalytics(sa);
+        setHeatmap(h);
+        if (h.gates.length > 0) setSelGate(h.gates[0].id);
+      } catch (err) {
+        console.error('Analytics core data failed:', err);
       }
-    });
+
+      // These can fail independently without breaking the page
+      try { const r = await api.get<{ risks: DependencyRisk[] }>(`/courses/${courseId}/analytics/dependency-risk`); setRisks(r.risks); } catch {}
+      try { const s = await api.get<{ suggestions: AISuggestion[] }>(`/courses/${courseId}/suggestions`); setSuggestions(s.suggestions); } catch {}
+      try { const a = await api.get<{ students: any[] }>(`/courses/${courseId}/analytics/attention`); setAttention(a.students); } catch {}
+      try { const ad = await api.get<AdaptiveData>(`/courses/${courseId}/suggestions/adaptive`); setAdaptiveData(ad); } catch {}
+
+      if (isCollege) {
+        try { const cc = await api.get<CrossCourseContext>('/programs/prog-default/kg'); setCrossCourse(cc); } catch {}
+      }
+
+      setLoading(false);
+    };
+    fetchData();
   }, [courseId]);
 
   useEffect(() => {
@@ -166,7 +171,14 @@ export function ClassAnalyticsPage() {
     bloom_focus: { icon: '🧠', label: 'Bloom Focus', color: '#7C3AED' },
   };
 
-  if (loading || !sessionAnalytics || !heatmap) return <SkeletonPage />;
+  if (loading) return <SkeletonPage />;
+  if (!sessionAnalytics || !heatmap) return (
+    <div className="max-w-3xl mx-auto text-center py-16">
+      <h2 className="text-lg font-bold text-gray-700 mb-2">Analytics not available</h2>
+      <p className="text-sm text-gray-500 mb-4">This course may not have session data yet. Try activating the course first.</p>
+      <Link to={`/teacher/courses/${courseId}/detail`} className="btn-primary inline-block">Back to Course</Link>
+    </div>
+  );
 
   const sa = sessionAnalytics;
   const stats = sa.course_stats;

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { api } from '../../lib/api';
 import { BloomBadge } from '../../components/shared/BloomBadge';
@@ -7,7 +7,7 @@ import { generateQuizSheetPDF, generateAnswerKeyPDF } from '../../lib/quizPdfGen
 import { useAuth } from '../../context/AuthContext';
 
 import { LessonAnalysis } from '../../components/teacher/LessonAnalysis';
-type Tab = 'plan' | 'socratic' | 'quiz' | 'analysis';
+type Tab = 'plan' | 'socratic' | 'quiz' | 'media' | 'analysis';
 
 function downloadCSV(questions: any[], lessonTitle: string) {
   const headers = ['#', 'Question', 'Type', 'Bloom Level', 'Correct Answer', 'Options', 'Rubric'];
@@ -126,6 +126,7 @@ export function LessonDetailPage() {
     { key: 'plan', label: 'Lesson Plan' },
     { key: 'socratic', label: 'Socratic Script', count: lesson.socratic_scripts?.length || 0 },
     { key: 'quiz', label: 'Quiz', count: questions.length },
+    { key: 'media', label: 'Media' },
     { key: 'analysis', label: 'Analysis' },
   ];
 
@@ -452,6 +453,11 @@ export function LessonDetailPage() {
         </div>
       )}
 
+      {/* Media Tab */}
+      {tab === 'media' && (
+        <MediaPanel courseId={courseId!} lessonId={lessonId!} lessonTitle={lesson.title} lessonNumber={lesson.lesson_number} />
+      )}
+
       {/* Analysis Tab */}
       {tab === 'analysis' && (
         <LessonAnalysis courseId={courseId!} lessonId={lessonId!} />
@@ -469,6 +475,336 @@ export function LessonDetailPage() {
             Lesson {nextLesson.lesson_number}: {nextLesson.title} &rarr;
           </Link>
         ) : <div />}
+      </div>
+    </div>
+  );
+}
+
+// ─── Media Panel Component ──────────────────────────────────
+
+interface SlidePreview { type: string; title: string; subtitle?: string; icon: string; sectionLabel: string; bullets?: string[]; numberedItems?: string[]; speakerNotes: string; accentColor: string }
+
+function MediaPanel({ courseId, lessonId, lessonTitle, lessonNumber }: { courseId: string; lessonId: string; lessonTitle: string; lessonNumber: number }) {
+  const [slides, setSlides] = useState<SlidePreview[]>([]);
+  const [currentSlide, setCurrentSlide] = useState(0);
+  const [slidesLoading, setSlidesLoading] = useState(true);
+  const [downloadingSlides, setDownloadingSlides] = useState(false);
+  const [narrationScript, setNarrationScript] = useState('');
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const [videoPlaying, setVideoPlaying] = useState(false);
+  const [videoSlideIdx, setVideoSlideIdx] = useState(0);
+  const videoTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const speechRef = useRef<SpeechSynthesisUtterance | null>(null);
+
+  useEffect(() => {
+    api.get<{ slides: SlidePreview[] }>(`/courses/${courseId}/lessons/${lessonId}/media/slides/preview`)
+      .then(d => { setSlides(d.slides); setSlidesLoading(false); })
+      .catch(() => setSlidesLoading(false));
+    api.get<{ script: string }>(`/courses/${courseId}/lessons/${lessonId}/media/narration/script`)
+      .then(d => setNarrationScript(d.script))
+      .catch(() => {});
+    return () => { if (videoTimerRef.current) clearInterval(videoTimerRef.current); };
+  }, [courseId, lessonId]);
+
+  const getToken = () => JSON.parse(localStorage.getItem('les_demo_session') || '{}')?.session?.access_token;
+
+  const handleDownloadSlides = async () => {
+    setDownloadingSlides(true);
+    try {
+      const res = await fetch(`/api/v1/courses/${courseId}/lessons/${lessonId}/media/slides`, { headers: { 'Authorization': `Bearer ${getToken()}` } });
+      if (!res.ok) throw new Error('Download failed');
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url;
+      a.download = `Lesson_${lessonNumber}_${lessonTitle.replace(/[^a-zA-Z0-9]/g, '_')}.pptx`;
+      a.click(); URL.revokeObjectURL(url);
+    } catch { alert('Failed to download slides'); }
+    setDownloadingSlides(false);
+  };
+
+  const getPreferredVoice = () => {
+    const voices = window.speechSynthesis.getVoices();
+    return voices.find(v => v.name.includes('Samantha')) || voices.find(v => v.name.includes('Google UK English Female')) || voices.find(v => v.name.includes('Karen')) || voices.find(v => v.lang.startsWith('en-') && v.name.includes('Female')) || voices.find(v => v.lang.startsWith('en'));
+  };
+
+  // Segmented TTS with natural pauses
+  const handlePlayNarration = () => {
+    if (!narrationScript) return;
+    window.speechSynthesis.cancel();
+    setIsSpeaking(true);
+    const segments = narrationScript.split('\n\n').filter(Boolean);
+    let idx = 0;
+    const speakNext = () => {
+      if (idx >= segments.length) { setIsSpeaking(false); return; }
+      const seg = segments[idx];
+      const isQuestion = seg.includes('?');
+      const isKey = seg.toLowerCase().includes('key idea') || seg.toLowerCase().includes('breakthrough');
+      const utter = new SpeechSynthesisUtterance(seg);
+      utter.rate = isKey ? 0.82 : isQuestion ? 0.88 : 0.92;
+      utter.pitch = isQuestion ? 1.1 : 1.0;
+      const voice = getPreferredVoice();
+      if (voice) utter.voice = voice;
+      utter.onend = () => { idx++; setTimeout(speakNext, 1500); };
+      window.speechSynthesis.speak(utter);
+    };
+    speakNext();
+  };
+
+  const handleStopNarration = () => { window.speechSynthesis.cancel(); setIsSpeaking(false); };
+
+  // Video — synced slides + per-slide narration with pauses
+  const handlePlayVideo = () => {
+    if (slides.length === 0) return;
+    window.speechSynthesis.cancel();
+    setVideoPlaying(true); setVideoSlideIdx(0);
+
+    const speakSlide = (idx: number) => {
+      if (idx >= slides.length) { setVideoPlaying(false); return; }
+      setVideoSlideIdx(idx);
+      const s = slides[idx];
+      const items = s.numberedItems || s.bullets || [];
+      // Build natural narration for this slide
+      let text = '';
+      if (s.type === 'title') text = `${s.title}. ${s.subtitle || ''}`;
+      else if (s.type === 'question') text = `${s.sectionLabel}. ${s.title}. ${items.join('. ')}. Take a moment to think about this.`;
+      else if (s.type === 'breakthrough') text = `Here's the breakthrough moment. ${items.join('. ')}`;
+      else if (s.type === 'example') text = `Let's look at some examples. ${items.map((it, i) => `Example ${i + 1}: ${it}`).join('. ')}`;
+      else if (s.type === 'summary') text = `Let's recap. ${items.map(it => `${it}`).join('. ')}`;
+      else text = `${s.title}. ${items.join('. ')}`;
+
+      const isKey = s.type === 'concept' || s.type === 'breakthrough';
+      const isQ = s.type === 'question';
+      const utter = new SpeechSynthesisUtterance(text);
+      utter.rate = isKey ? 0.82 : isQ ? 0.85 : 0.9;
+      utter.pitch = isQ ? 1.08 : 1.0;
+      const voice = getPreferredVoice();
+      if (voice) utter.voice = voice;
+      utter.onend = () => setTimeout(() => speakSlide(idx + 1), 2000); // 2 second pause between slides
+      window.speechSynthesis.speak(utter);
+    };
+    speakSlide(0);
+  };
+
+  const handleStopVideo = () => { window.speechSynthesis.cancel(); setVideoPlaying(false); };
+
+  const slide = videoPlaying ? slides[videoSlideIdx] : slides[currentSlide];
+  const activeIdx = videoPlaying ? videoSlideIdx : currentSlide;
+
+  const renderSlide = (s: SlidePreview, idx: number, total: number) => {
+    const color = `#${s.accentColor}`;
+    const darkBg = s.type === 'title' || s.type === 'summary' || s.type === 'breakthrough';
+    const bgMap: Record<string, string> = { title: color, summary: color, breakthrough: color, question: '#F5F3FF', activity: '#FFFBEB', example: '#FFFFFF' };
+    const bg = bgMap[s.type] || '#FFFFFF';
+    const items = s.numberedItems || s.bullets || [];
+    const sideColor = s.type === 'example' ? '#16A34A' : s.type === 'activity' ? '#F59E0B' : color;
+
+    return (
+      <div key={idx} className="relative w-full" style={{ aspectRatio: '16/9' }}>
+        <div className="absolute inset-0 rounded-lg shadow-card-lg overflow-hidden" style={{ background: bg }}>
+          {/* Left accent sidebar */}
+          {!darkBg && <div className="absolute left-0 top-0 bottom-0 w-1.5" style={{ background: sideColor }} />}
+
+          {/* Decorative circle for dark slides */}
+          {darkBg && <div className="absolute -top-8 -right-8 w-32 h-32 rounded-full opacity-10" style={{ background: '#FFF' }} />}
+          {darkBg && <div className="absolute -bottom-6 -left-6 w-20 h-20 rounded-full opacity-10" style={{ background: '#FFF' }} />}
+
+          {/* Section label + icon */}
+          <div className="absolute top-3 left-5 flex items-center gap-1.5">
+            <span className="text-base">{s.icon}</span>
+            <span className={`text-[8px] font-bold tracking-widest ${darkBg ? 'text-white/60' : ''}`} style={!darkBg ? { color: sideColor } : {}}>{s.sectionLabel}</span>
+          </div>
+
+          {/* Slide number */}
+          <div className="absolute top-3 right-4">
+            <span className={`text-[9px] font-bold ${darkBg ? 'text-white/40' : 'text-gray-300'}`}>{idx + 1} / {total}</span>
+          </div>
+
+          {/* Content */}
+          <div className="absolute inset-0 flex flex-col justify-center px-8 pt-10 pb-8">
+            {s.type === 'title' ? (
+              <>
+                <h2 className="text-2xl md:text-3xl font-black text-white mb-3 leading-tight">{s.title}</h2>
+                {s.subtitle && <pre className="text-[11px] text-white/60 whitespace-pre-wrap font-sans">{s.subtitle}</pre>}
+              </>
+            ) : darkBg ? (
+              <>
+                <h2 className="text-lg font-black text-white/80 mb-3">{s.title}</h2>
+                <div className="space-y-2">
+                  {items.map((b, i) => (
+                    <div key={i} className="bg-white/15 backdrop-blur rounded-lg px-4 py-2.5">
+                      <p className="text-sm text-white font-medium leading-relaxed">{s.type === 'summary' ? `✓  ${b}` : `"${b}"`}</p>
+                    </div>
+                  ))}
+                </div>
+              </>
+            ) : s.type === 'question' ? (
+              <>
+                <h2 className="text-base font-black text-gray-800 mb-3">{s.title}</h2>
+                <div className="bg-white rounded-xl border border-purple-200 px-5 py-4 shadow-sm">
+                  <p className="text-base text-purple-900 italic leading-relaxed">"{items[0] || ''}"</p>
+                </div>
+                {s.subtitle && <p className="text-[10px] text-gray-400 mt-3">{s.subtitle}</p>}
+              </>
+            ) : s.type === 'example' ? (
+              <>
+                <h2 className="text-base font-black text-gray-800 mb-3">{s.title}</h2>
+                <div className="space-y-2">
+                  {items.map((item, i) => (
+                    <div key={i} className="flex items-start gap-3">
+                      <div className="w-6 h-6 rounded-full bg-green-600 text-white flex items-center justify-center text-[10px] font-bold flex-shrink-0 mt-0.5">{i + 1}</div>
+                      <div className="bg-green-50 border border-green-200 rounded-lg px-3 py-2 flex-1">
+                        <p className="text-[12px] text-gray-700 leading-relaxed">{item}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </>
+            ) : s.type === 'activity' ? (
+              <>
+                <h2 className="text-base font-black text-amber-900 mb-1">{s.title}</h2>
+                {s.subtitle && <p className="text-[10px] text-amber-600 mb-3">{s.subtitle}</p>}
+                <div className="space-y-2">
+                  {items.map((item, i) => (
+                    <div key={i} className="bg-white rounded-lg border border-amber-200 px-4 py-2.5">
+                      <p className="text-[12px] text-gray-700">{s.numberedItems ? `${i + 1}.  ${item}` : `•  ${item}`}</p>
+                    </div>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <>
+                <h2 className="text-base font-black text-gray-800 mb-3">{s.title}</h2>
+                <div className="space-y-2">
+                  {items.map((b, i) => (
+                    <div key={i} className="bg-gray-50 rounded-lg border border-gray-100 px-4 py-2.5">
+                      <p className="text-[12px] text-gray-700 leading-relaxed">{b}</p>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* Footer */}
+          {!darkBg && (
+            <div className="absolute bottom-0 left-0 right-0 h-7 flex items-center justify-between px-5" style={{ background: `${sideColor}08` }}>
+              <span className="text-[8px] font-bold" style={{ color: sideColor }}>LEAP  ·  Session {lessonNumber}</span>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div className="fade-in space-y-6">
+      {/* ═══ SLIDES SECTION ═══ */}
+      <div className="card p-5">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h3 className="text-sm font-black text-gray-900">Teaching Slides</h3>
+            <p className="text-[11px] text-gray-400">{slides.length} slides — ready to present or download</p>
+          </div>
+          <button onClick={handleDownloadSlides} disabled={downloadingSlides || slides.length === 0} className="btn-primary text-[11px] py-1.5">
+            {downloadingSlides ? 'Downloading...' : 'Download .pptx'}
+          </button>
+        </div>
+
+        {slidesLoading ? (
+          <div className="animate-pulse rounded-lg" style={{ aspectRatio: '16/9', background: '#F3F4F6' }} />
+        ) : slides.length > 0 && slide ? (
+          <div>
+            <div key={activeIdx} className="slide-enter">
+              {renderSlide(slide, activeIdx, slides.length)}
+            </div>
+
+            {/* Speaker Notes */}
+            {slide.speakerNotes && !videoPlaying && (
+              <div className="mt-3 bg-gray-50 rounded-lg p-3 border border-gray-100">
+                <p className="text-[9px] font-bold text-gray-400 uppercase tracking-wider mb-1">Speaker Notes</p>
+                <p className="text-[11px] text-gray-600 leading-relaxed">{slide.speakerNotes}</p>
+              </div>
+            )}
+
+            {/* Navigation (only when not in video mode) */}
+            {!videoPlaying && (
+              <div className="flex items-center justify-between mt-3">
+                <button onClick={() => setCurrentSlide(Math.max(0, currentSlide - 1))} disabled={currentSlide === 0} className="btn-secondary text-[11px] py-1.5 disabled:opacity-30">&larr; Prev</button>
+                <div className="flex gap-1">
+                  {slides.map((_, i) => (
+                    <button key={i} onClick={() => setCurrentSlide(i)} className={`w-2 h-2 rounded-full transition-all ${i === currentSlide ? 'bg-leap-navy scale-125' : 'bg-gray-300 hover:bg-gray-400'}`} />
+                  ))}
+                </div>
+                <button onClick={() => setCurrentSlide(Math.min(slides.length - 1, currentSlide + 1))} disabled={currentSlide === slides.length - 1} className="btn-secondary text-[11px] py-1.5 disabled:opacity-30">Next &rarr;</button>
+              </div>
+            )}
+          </div>
+        ) : (
+          <p className="text-sm text-gray-400 text-center py-8">No slide data available</p>
+        )}
+      </div>
+
+      {/* ═══ AUDIO NARRATION SECTION ═══ */}
+      <div className="card p-5">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h3 className="text-sm font-black text-gray-900">Audio Narration</h3>
+            <p className="text-[11px] text-gray-400">{isSpeaking ? 'Speaking...' : 'AI reads the lesson narration aloud'}</p>
+          </div>
+          <div className="flex gap-2">
+            {isSpeaking ? (
+              <button onClick={handleStopNarration} className="btn-secondary text-[11px] py-1.5 text-red-600 border-red-200 hover:bg-red-50">Stop</button>
+            ) : (
+              <button onClick={handlePlayNarration} disabled={!narrationScript} className="btn-primary text-[11px] py-1.5">
+                ▶ Play Narration
+              </button>
+            )}
+          </div>
+        </div>
+        {narrationScript && (
+          <details className="mt-1">
+            <summary className="text-[11px] font-bold text-gray-500 cursor-pointer hover:text-gray-700">View Narration Script ({narrationScript.length} chars)</summary>
+            <pre className="mt-2 text-[11px] text-gray-600 bg-gray-50 p-3 rounded-xl border border-gray-100 whitespace-pre-wrap leading-relaxed max-h-48 overflow-y-auto">{narrationScript}</pre>
+          </details>
+        )}
+      </div>
+
+      {/* ═══ VIDEO SECTION (Synced Slides + Voice) ═══ */}
+      <div className="card p-5">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h3 className="text-sm font-black text-gray-900">Lesson Video</h3>
+            <p className="text-[11px] text-gray-400">
+              {videoPlaying ? `Playing slide ${videoSlideIdx + 1} of ${slides.length}...` : 'Narrated slideshow — AI reads each slide aloud'}
+            </p>
+          </div>
+          <div className="flex gap-2">
+            {videoPlaying ? (
+              <button onClick={handleStopVideo} className="btn-secondary text-[11px] py-1.5 text-red-600 border-red-200 hover:bg-red-50">Stop Video</button>
+            ) : (
+              <button onClick={handlePlayVideo} disabled={slides.length === 0} className="btn-primary text-[11px] py-1.5">
+                ▶ Play Lesson Video
+              </button>
+            )}
+          </div>
+        </div>
+
+        {videoPlaying && slides.length > 0 && (
+          <div>
+            <div key={videoSlideIdx} className="slide-enter">
+              {renderSlide(slides[videoSlideIdx], videoSlideIdx, slides.length)}
+            </div>
+            <div className="mt-2 bg-gray-200 rounded-full h-1.5 overflow-hidden">
+              <div className="h-full bg-leap-navy rounded-full transition-all duration-1000" style={{ width: `${((videoSlideIdx + 1) / slides.length) * 100}%` }} />
+            </div>
+          </div>
+        )}
+
+        {!videoPlaying && (
+          <div className="bg-gray-50 rounded-xl p-4 text-center border border-dashed border-gray-200 mt-2">
+            <p className="text-[12px] text-gray-500">Click "Play Lesson Video" — AI voice will narrate each slide as it advances automatically</p>
+          </div>
+        )}
       </div>
     </div>
   );
