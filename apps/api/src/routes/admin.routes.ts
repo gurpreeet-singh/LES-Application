@@ -715,6 +715,150 @@ router.post('/actions', async (req: Request, res: Response) => {
   }
 });
 
+// GET /admin/at-risk-students — school-wide at-risk students with multi-course analysis
+router.get('/at-risk-students', async (_req: Request, res: Response) => {
+  try {
+    const [{ data: progress }, { data: enrollments }, { data: students }, { data: courses }, { data: gates }] = await Promise.all([
+      supabaseAdmin.from('student_gate_progress').select('student_id, course_id, gate_id, mastery_pct'),
+      supabaseAdmin.from('enrollments').select('student_id, course_id'),
+      supabaseAdmin.from('profiles').select('id, full_name, email, school').eq('role', 'student'),
+      supabaseAdmin.from('courses').select('id, title, subject, class_level, section, teacher_id, status').eq('status', 'active'),
+      supabaseAdmin.from('gates').select('id, course_id, gate_number, short_title'),
+    ]);
+
+    const teacherIds = [...new Set((courses || []).map(c => c.teacher_id))];
+    const { data: teachers } = await supabaseAdmin.from('profiles').select('id, full_name').in('id', teacherIds.length > 0 ? teacherIds : ['none']);
+    const teacherMap = new Map((teachers || []).map(t => [t.id, t.full_name]));
+    const courseMap = new Map((courses || []).map(c => [c.id, c]));
+    const gateMap = new Map((gates || []).map(g => [g.id, g]));
+
+    // Group enrollments by student
+    const studentEnrollments: Record<string, string[]> = {};
+    (enrollments || []).forEach(e => {
+      if (!studentEnrollments[e.student_id]) studentEnrollments[e.student_id] = [];
+      studentEnrollments[e.student_id].push(e.course_id);
+    });
+
+    // Build per-student analysis
+    const atRiskStudents: any[] = [];
+    const studentMap = new Map((students || []).map(s => [s.id, s]));
+
+    for (const [studentId, courseIds] of Object.entries(studentEnrollments)) {
+      const student = studentMap.get(studentId);
+      if (!student) continue;
+
+      const studentProgress = (progress || []).filter(p => p.student_id === studentId);
+      const courseAnalysis: any[] = [];
+      let totalAtRiskGates = 0;
+      let atRiskCourseCount = 0;
+
+      for (const cid of courseIds) {
+        const course = courseMap.get(cid);
+        if (!course) continue;
+        const courseProgress = studentProgress.filter(p => p.course_id === cid);
+        const avgMastery = courseProgress.length > 0
+          ? Math.round(courseProgress.reduce((s, p) => s + (p.mastery_pct || 0), 0) / courseProgress.length)
+          : 0;
+
+        const strugglingGates = courseProgress
+          .filter(p => p.mastery_pct > 0 && p.mastery_pct < AT_RISK_THRESHOLD)
+          .map(p => {
+            const g = gateMap.get(p.gate_id);
+            return { gate_number: g?.gate_number, short_title: g?.short_title, mastery_pct: p.mastery_pct };
+          });
+
+        totalAtRiskGates += strugglingGates.length;
+        if (avgMastery > 0 && avgMastery < AT_RISK_THRESHOLD) atRiskCourseCount++;
+
+        courseAnalysis.push({
+          course_id: cid,
+          course_title: course.title,
+          subject: course.subject,
+          class_level: course.class_level,
+          teacher_name: teacherMap.get(course.teacher_id) || 'Unknown',
+          avg_mastery: avgMastery,
+          at_risk: avgMastery > 0 && avgMastery < AT_RISK_THRESHOLD,
+          struggling_gates: strugglingGates,
+        });
+      }
+
+      const overallMastery = courseAnalysis.filter(c => c.avg_mastery > 0);
+      const avgAll = overallMastery.length > 0 ? Math.round(overallMastery.reduce((s, c) => s + c.avg_mastery, 0) / overallMastery.length) : 0;
+
+      if (avgAll > 0 && (avgAll < AT_RISK_THRESHOLD || atRiskCourseCount >= 2 || totalAtRiskGates >= 3)) {
+        atRiskStudents.push({
+          id: studentId,
+          name: student.full_name,
+          email: student.email,
+          overall_mastery: avgAll,
+          at_risk_courses: atRiskCourseCount,
+          total_courses: courseIds.length,
+          at_risk_gates: totalAtRiskGates,
+          risk_level: atRiskCourseCount >= 3 ? 'systemic' : atRiskCourseCount >= 2 ? 'multi-course' : 'single-course',
+          courses: courseAnalysis,
+        });
+      }
+    }
+
+    atRiskStudents.sort((a, b) => a.overall_mastery - b.overall_mastery);
+
+    res.json({
+      students: atRiskStudents,
+      summary: {
+        total_at_risk: atRiskStudents.length,
+        systemic_risk: atRiskStudents.filter(s => s.risk_level === 'systemic').length,
+        multi_course_risk: atRiskStudents.filter(s => s.risk_level === 'multi-course').length,
+      },
+    });
+  } catch (err: any) {
+    console.error('At-risk students error:', err.message);
+    res.status(500).json({ error: 'Failed to fetch at-risk students' });
+  }
+});
+
+// GET /admin/action-history — principal's recent actions
+router.get('/action-history', async (req: Request, res: Response) => {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from('principal_actions')
+      .select('*')
+      .eq('principal_id', req.user!.id)
+      .order('created_at', { ascending: false })
+      .limit(20);
+
+    if (error) {
+      // Table might not exist yet
+      res.json({ actions: [], message: 'Action history not available yet' });
+      return;
+    }
+
+    // Enrich with teacher/course names
+    const teacherIds = [...new Set((data || []).filter(a => a.target_teacher_id).map(a => a.target_teacher_id))];
+    const courseIds = [...new Set((data || []).filter(a => a.target_course_id).map(a => a.target_course_id))];
+
+    const { data: teacherProfiles } = teacherIds.length > 0
+      ? await supabaseAdmin.from('profiles').select('id, full_name').in('id', teacherIds)
+      : { data: [] };
+    const { data: courseData } = courseIds.length > 0
+      ? await supabaseAdmin.from('courses').select('id, title').in('id', courseIds)
+      : { data: [] };
+
+    const tMap = new Map((teacherProfiles || []).map(t => [t.id, t.full_name]));
+    const cMap = new Map((courseData || []).map(c => [c.id, c.title]));
+
+    const enriched = (data || []).map(a => ({
+      ...a,
+      teacher_name: tMap.get(a.target_teacher_id) || null,
+      course_title: cMap.get(a.target_course_id) || null,
+    }));
+
+    res.json({ actions: enriched });
+  } catch (err: any) {
+    console.error('Action history error:', err.message);
+    res.json({ actions: [] });
+  }
+});
+
 // ─── TIMETABLE & SUBSTITUTE SYSTEM ───────────────────────────────────────────
 
 const PERIOD_TIMINGS = [

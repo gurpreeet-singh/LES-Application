@@ -4,7 +4,7 @@ import { useAuth } from '../../context/AuthContext';
 
 // ─── Types ───────────────────────────────────────────────────
 
-type AdminTab = 'today' | 'teachers';
+type AdminTab = 'today' | 'students' | 'teachers';
 
 interface Overview {
   total_teachers: number;
@@ -68,6 +68,18 @@ interface CourseDetail {
 }
 interface TeacherDetail { teacher: any; courses: CourseDetail[]; suggestions: { type: string; severity: 'critical' | 'warning' | 'info' | 'success'; teacher: string; course: string; message: string }[] }
 
+interface AtRiskStudent {
+  id: string; name: string; email: string; overall_mastery: number;
+  at_risk_courses: number; total_courses: number; at_risk_gates: number;
+  risk_level: 'systemic' | 'multi-course' | 'single-course';
+  courses: { course_title: string; subject: string; teacher_name: string; avg_mastery: number; at_risk: boolean; struggling_gates: { gate_number: number; short_title: string; mastery_pct: number }[] }[];
+}
+
+interface ActionHistoryItem {
+  id: string; action_type: string; note: string; status: string; created_at: string;
+  teacher_name?: string; course_title?: string;
+}
+
 // ─── Main Component ──────────────────────────────────────────
 
 export function AdminDashboardPage() {
@@ -85,6 +97,10 @@ export function AdminDashboardPage() {
   const [actionNote, setActionNote] = useState('');
   const [actionSaving, setActionSaving] = useState(false);
   const [dismissedAlerts, setDismissedAlerts] = useState<Set<string>>(new Set());
+  const [atRiskStudents, setAtRiskStudents] = useState<AtRiskStudent[]>([]);
+  const [atRiskSummary, setAtRiskSummary] = useState<{ total_at_risk: number; systemic_risk: number; multi_course_risk: number }>({ total_at_risk: 0, systemic_risk: 0, multi_course_risk: 0 });
+  const [actionHistory, setActionHistory] = useState<ActionHistoryItem[]>([]);
+  const [expandedStudent, setExpandedStudent] = useState<string | null>(null);
 
   useEffect(() => {
     Promise.all([
@@ -99,6 +115,12 @@ export function AdminDashboardPage() {
       setTeachers(t.teachers);
       setLoading(false);
     }).catch(() => setLoading(false));
+
+    // Fetch at-risk students and action history (non-blocking)
+    api.get<{ students: AtRiskStudent[]; summary: typeof atRiskSummary }>('/admin/at-risk-students')
+      .then(d => { setAtRiskStudents(d.students); setAtRiskSummary(d.summary); }).catch(() => {});
+    api.get<{ actions: ActionHistoryItem[] }>('/admin/action-history')
+      .then(d => setActionHistory(d.actions)).catch(() => {});
   }, []);
 
   const loadTeacherDetail = async (teacherId: string) => {
@@ -174,6 +196,7 @@ export function AdminDashboardPage() {
       <div className="flex gap-1.5 mb-5">
         {([
           { key: 'today' as const, label: 'Today', badge: visibleAlerts.filter(a => a.severity === 'critical').length },
+          { key: 'students' as const, label: 'Students', badge: atRiskSummary.total_at_risk },
           { key: 'teachers' as const, label: 'Teachers' },
         ]).map(t => (
           <button
@@ -274,6 +297,134 @@ export function AdminDashboardPage() {
                 </div>
               )}
             </>
+          )}
+
+          {/* Action History */}
+          {actionHistory.length > 0 && (
+            <div>
+              <h2 className="section-header mb-3 flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-leap-purple inline-block" />
+                Your Recent Actions
+              </h2>
+              <div className="space-y-1.5">
+                {actionHistory.slice(0, 8).map(action => {
+                  const actionLabels: Record<string, string> = { schedule_meeting: 'Scheduled meeting', nudge_teacher: 'Sent nudge', assign_mentor: 'Assigned substitute', acknowledge_alert: 'Acknowledged alert', request_workshop: 'Requested workshop', schedule_training: 'Scheduled training', refer_counselor: 'Referred to counselor', flag_observation: 'Flagged for observation' };
+                  const actionIcons: Record<string, string> = { schedule_meeting: '📅', nudge_teacher: '💬', assign_mentor: '🤝', acknowledge_alert: '✓', request_workshop: '🏫', schedule_training: '📚', refer_counselor: '🩺', flag_observation: '👁️' };
+                  const ago = Math.round((Date.now() - new Date(action.created_at).getTime()) / 60000);
+                  const timeLabel = ago < 60 ? `${ago}m ago` : ago < 1440 ? `${Math.round(ago / 60)}h ago` : `${Math.round(ago / 1440)}d ago`;
+                  return (
+                    <div key={action.id} className="flex items-center gap-3 bg-gray-50 rounded-xl px-3 py-2">
+                      <span className="text-base">{actionIcons[action.action_type] || '📋'}</span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[11px] text-gray-800">
+                          <strong>{actionLabels[action.action_type] || action.action_type}</strong>
+                          {action.teacher_name && ` — ${action.teacher_name}`}
+                          {action.course_title && ` (${action.course_title})`}
+                        </p>
+                        {action.note && <p className="text-[10px] text-gray-400 truncate">{action.note}</p>}
+                      </div>
+                      <span className="text-[9px] text-gray-400 flex-shrink-0">{timeLabel}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ═══ STUDENTS TAB ═══ */}
+      {tab === 'students' && (
+        <div className="fade-in space-y-5">
+          {/* Risk Summary Cards */}
+          <div className="grid grid-cols-3 gap-3">
+            <div className="card p-4 border-l-4 border-l-red-500">
+              <p className="text-2xl font-black text-red-600">{atRiskSummary.total_at_risk}</p>
+              <p className="text-[11px] text-gray-500">Total At-Risk Students</p>
+            </div>
+            <div className="card p-4 border-l-4 border-l-red-700">
+              <p className="text-2xl font-black text-red-800">{atRiskSummary.systemic_risk}</p>
+              <p className="text-[11px] text-gray-500">Systemic Risk (3+ courses)</p>
+              <p className="text-[9px] text-gray-400 mt-0.5">Likely a welfare issue, not subject-specific</p>
+            </div>
+            <div className="card p-4 border-l-4 border-l-amber-500">
+              <p className="text-2xl font-black text-amber-600">{atRiskSummary.multi_course_risk}</p>
+              <p className="text-[11px] text-gray-500">Multi-Course Risk (2+ courses)</p>
+              <p className="text-[9px] text-gray-400 mt-0.5">Struggling across subjects</p>
+            </div>
+          </div>
+
+          {/* At-Risk Student List */}
+          {atRiskStudents.length === 0 ? (
+            <div className="card p-8 text-center bg-green-50/30 border-l-4 border-l-green-400">
+              <p className="text-sm font-bold text-green-700">No at-risk students detected</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {atRiskStudents.map(student => (
+                <div key={student.id}>
+                  <button
+                    onClick={() => setExpandedStudent(expandedStudent === student.id ? null : student.id)}
+                    className={`w-full card p-4 text-left transition-all hover:shadow-card-hover ${expandedStudent === student.id ? 'ring-2 ring-red-300' : ''}`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-white text-sm font-bold ${student.risk_level === 'systemic' ? 'bg-red-700' : student.risk_level === 'multi-course' ? 'bg-red-500' : 'bg-amber-500'}`}>
+                          {student.name.charAt(0)}
+                        </div>
+                        <div>
+                          <p className="text-sm font-bold text-gray-900">{student.name}</p>
+                          <p className="text-[10px] text-gray-400">{student.email}</p>
+                        </div>
+                        <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full ${student.risk_level === 'systemic' ? 'bg-red-100 text-red-800' : student.risk_level === 'multi-course' ? 'bg-red-50 text-red-700' : 'bg-amber-50 text-amber-700'}`}>
+                          {student.risk_level === 'systemic' ? 'SYSTEMIC RISK' : student.risk_level === 'multi-course' ? 'MULTI-COURSE' : 'AT RISK'}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-5">
+                        <div className="text-center"><p className={`text-lg font-black ${student.overall_mastery >= 60 ? 'text-yellow-600' : 'text-red-600'}`}>{student.overall_mastery}%</p><p className="text-[9px] text-gray-400">Mastery</p></div>
+                        <div className="text-center"><p className="text-lg font-black text-red-600">{student.at_risk_courses}</p><p className="text-[9px] text-gray-400">Courses at risk</p></div>
+                        <div className="text-center"><p className="text-lg font-black text-amber-600">{student.at_risk_gates}</p><p className="text-[9px] text-gray-400">Weak topics</p></div>
+                        <span className={`text-gray-400 transition-transform ${expandedStudent === student.id ? 'rotate-180' : ''}`}>&#9660;</span>
+                      </div>
+                    </div>
+                  </button>
+
+                  {expandedStudent === student.id && (
+                    <div className="mt-2 card p-4 animate-slide-down space-y-3">
+                      {/* Per-course breakdown */}
+                      {student.courses.map((c, ci) => (
+                        <div key={ci} className={`p-3 rounded-xl border ${c.at_risk ? 'border-red-200 bg-red-50/30' : 'border-gray-100'}`}>
+                          <div className="flex items-center justify-between mb-2">
+                            <div>
+                              <p className="text-[12px] font-bold text-gray-800">{c.course_title}</p>
+                              <p className="text-[10px] text-gray-400">{c.subject} | Teacher: {c.teacher_name}</p>
+                            </div>
+                            <span className={`text-sm font-black ${c.avg_mastery >= 60 ? 'text-yellow-600' : c.avg_mastery > 0 ? 'text-red-600' : 'text-gray-300'}`}>{c.avg_mastery > 0 ? `${c.avg_mastery}%` : 'N/A'}</span>
+                          </div>
+                          {c.struggling_gates.length > 0 && (
+                            <div className="flex gap-1.5 flex-wrap">
+                              {c.struggling_gates.map((g, gi) => (
+                                <span key={gi} className="text-[9px] bg-red-100 text-red-700 font-medium px-2 py-0.5 rounded-full">
+                                  Topic {g.gate_number}: {g.short_title} ({g.mastery_pct}%)
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                      {/* Action Buttons */}
+                      <div className="flex gap-2 pt-2">
+                        <button onClick={() => { api.post('/admin/actions', { action_type: 'nudge_teacher', target_student_id: student.id, note: `Flag at-risk student: ${student.name}` }).catch(() => {}); alert(`Flagged ${student.name} for teacher attention`); }} className="btn-primary text-[10px] py-1.5">Notify Teachers</button>
+                        <button onClick={() => { api.post('/admin/actions', { action_type: 'schedule_meeting', target_student_id: student.id, note: `Schedule parent meeting for: ${student.name}` }).catch(() => {}); alert(`Parent meeting scheduled for ${student.name}`); }} className="btn-secondary text-[10px] py-1.5">Schedule Parent Meeting</button>
+                        {student.risk_level === 'systemic' && (
+                          <button onClick={() => { api.post('/admin/actions', { action_type: 'refer_counselor', target_student_id: student.id, note: `Refer to counselor: ${student.name} (systemic risk)` }).catch(() => {}); alert(`${student.name} referred to counselor`); }} className="btn-secondary text-[10px] py-1.5 text-red-600 border-red-200 hover:bg-red-50">Refer to Counselor</button>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
           )}
         </div>
       )}
