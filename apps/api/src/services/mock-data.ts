@@ -1,5 +1,5 @@
 // Mock data for local demo mode (no Supabase needed)
-import type { Profile, Course, Gate, SubConcept, Lesson, SocraticScript, Question } from '@les/shared';
+import type { Profile, Course, Gate, SubConcept, Lesson, SocraticScript, Question } from '@leap/shared';
 
 export const MOCK_TEACHER: Profile = {
   id: 'teacher-001',

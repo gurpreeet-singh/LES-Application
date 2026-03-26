@@ -1,24 +1,36 @@
 import { Router, Request, Response } from 'express';
+import multer from 'multer';
 import { requireRole } from '../middleware/role.js';
 import { supabaseAdmin } from '../config/supabase.js';
 import { DeconstructionService } from '../services/deconstruction.service.js';
 import { QuizGenerationService } from '../services/quiz-generation.service.js';
 import { createLLMProvider } from '../services/llm/provider.js';
 import { SessionPlannerService } from '../services/session-planner.service.js';
+import { detectCrossCourseEdges } from '../services/cross-course-detection.service.js';
+
+const syllabusUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 15 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const allowed = ['application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'application/msword', 'text/plain', 'image/jpeg', 'image/png'];
+    cb(null, allowed.includes(file.mimetype));
+  },
+}).single('syllabus_file');
 
 const router = Router();
 
-// GET /courses
+// GET /courses — list only, excludes large syllabus_text field
 router.get('/', async (req: Request, res: Response) => {
   const user = req.user!;
+  const fields = 'id,teacher_id,title,subject,class_level,section,academic_year,status,llm_provider,mastery_threshold,total_sessions,session_duration_minutes,processing_error,processing_started_at,created_at,updated_at';
   let query;
 
   if (user.role === 'teacher') {
-    query = supabaseAdmin.from('courses').select('*').eq('teacher_id', user.id);
+    query = supabaseAdmin.from('courses').select(fields).eq('teacher_id', user.id);
   } else {
     query = supabaseAdmin
       .from('courses')
-      .select('*, enrollments!inner(student_id)')
+      .select(`${fields}, enrollments!inner(student_id)`)
       .eq('enrollments.student_id', user.id)
       .eq('status', 'active');
   }
@@ -28,6 +40,21 @@ router.get('/', async (req: Request, res: Response) => {
   if (error) {
     res.status(500).json({ error: error.message });
     return;
+  }
+
+  // Auto-recover courses stuck in 'processing' for more than 10 minutes
+  if (data && user.role === 'teacher') {
+    const staleThreshold = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+    const staleCourses = data.filter((c: any) => c.status === 'processing' && c.updated_at < staleThreshold);
+    for (const sc of staleCourses) {
+      await supabaseAdmin.from('courses').update({
+        status: 'draft',
+        processing_error: 'Processing timed out. Please try again.',
+        updated_at: new Date().toISOString(),
+      }).eq('id', sc.id);
+      sc.status = 'draft';
+      sc.processing_error = 'Processing timed out. Please try again.';
+    }
   }
 
   res.json({ courses: data });
@@ -63,12 +90,15 @@ router.post('/', requireRole('teacher'), async (req: Request, res: Response) => 
   res.status(201).json({ course: data });
 });
 
-// GET /courses/:id
+// GET /courses/:id — only accessible by course teacher or enrolled students
 router.get('/:id', async (req: Request, res: Response) => {
+  const userId = req.user!.id;
+  const courseId = req.params.id;
+
   const { data, error } = await supabaseAdmin
     .from('courses')
     .select('*')
-    .eq('id', req.params.id)
+    .eq('id', courseId)
     .single();
 
   if (error || !data) {
@@ -76,16 +106,74 @@ router.get('/:id', async (req: Request, res: Response) => {
     return;
   }
 
+  // Authorization: teacher who owns it OR enrolled student
+  if (data.teacher_id !== userId) {
+    const { data: enrollment } = await supabaseAdmin
+      .from('enrollments')
+      .select('student_id')
+      .eq('course_id', courseId)
+      .eq('student_id', userId)
+      .single();
+
+    if (!enrollment) {
+      res.status(403).json({ error: 'Not authorized to view this course' });
+      return;
+    }
+  }
+
   res.json({ course: data });
+});
+
+// DELETE /courses/:id
+router.delete('/:id', requireRole('teacher'), async (req: Request, res: Response) => {
+  const courseId = req.params.id;
+  const teacherId = req.user!.id;
+
+  // Verify ownership
+  const { data: course } = await supabaseAdmin.from('courses').select('id').eq('id', courseId).eq('teacher_id', teacherId).single();
+  if (!course) { res.status(404).json({ error: 'Course not found' }); return; }
+
+  // Delete in order: attempts → progress → enrollments → questions → sub_concepts → prerequisites → lessons → scripts → suggestions → session_plan → gates → course
+  await supabaseAdmin.from('question_attempts').delete().in('gate_id', (await supabaseAdmin.from('gates').select('id').eq('course_id', courseId)).data?.map(g => g.id) || []);
+  await supabaseAdmin.from('student_gate_progress').delete().eq('course_id', courseId);
+  await supabaseAdmin.from('enrollments').delete().eq('course_id', courseId);
+  await supabaseAdmin.from('questions').delete().eq('course_id', courseId);
+  await supabaseAdmin.from('ai_suggestions').delete().eq('course_id', courseId);
+  await supabaseAdmin.from('session_plan').delete().eq('course_id', courseId);
+
+  const gateIds = (await supabaseAdmin.from('gates').select('id').eq('course_id', courseId)).data?.map(g => g.id) || [];
+  if (gateIds.length > 0) {
+    await supabaseAdmin.from('gate_prerequisites').delete().in('gate_id', gateIds);
+    await supabaseAdmin.from('sub_concepts').delete().in('gate_id', gateIds);
+    const lessonIds = (await supabaseAdmin.from('lessons').select('id').in('gate_id', gateIds)).data?.map(l => l.id) || [];
+    if (lessonIds.length > 0) {
+      await supabaseAdmin.from('socratic_scripts').delete().in('lesson_id', lessonIds);
+    }
+    await supabaseAdmin.from('lessons').delete().eq('course_id', courseId);
+    await supabaseAdmin.from('gates').delete().eq('course_id', courseId);
+  }
+
+  await supabaseAdmin.from('courses').delete().eq('id', courseId);
+  res.json({ message: 'Course deleted' });
 });
 
 // PUT /courses/:id
 router.put('/:id', requireRole('teacher'), async (req: Request, res: Response) => {
-  const { title, subject, class_level, section, academic_year } = req.body;
+  const { title, subject, class_level, section, academic_year, total_sessions, session_duration_minutes, mastery_threshold } = req.body;
+
+  const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
+  if (title !== undefined) updates.title = title;
+  if (subject !== undefined) updates.subject = subject;
+  if (class_level !== undefined) updates.class_level = class_level;
+  if (section !== undefined) updates.section = section;
+  if (academic_year !== undefined) updates.academic_year = academic_year;
+  if (total_sessions !== undefined) updates.total_sessions = total_sessions;
+  if (session_duration_minutes !== undefined) updates.session_duration_minutes = session_duration_minutes;
+  if (mastery_threshold !== undefined) updates.mastery_threshold = mastery_threshold;
 
   const { data, error } = await supabaseAdmin
     .from('courses')
-    .update({ title, subject, class_level, section, academic_year, updated_at: new Date().toISOString() })
+    .update(updates)
     .eq('id', req.params.id)
     .eq('teacher_id', req.user!.id)
     .select()
@@ -105,6 +193,11 @@ router.post('/:id/syllabus', requireRole('teacher'), async (req: Request, res: R
 
   if (!syllabus_text) {
     res.status(400).json({ error: 'syllabus_text is required' });
+    return;
+  }
+
+  if (syllabus_text.length > 50000) {
+    res.status(400).json({ error: `Syllabus too long (${syllabus_text.length} chars). Maximum is 50,000 characters. Please shorten or paste just the table of contents and key topics.` });
     return;
   }
 
@@ -133,32 +226,81 @@ router.post('/:id/syllabus', requireRole('teacher'), async (req: Request, res: R
   res.json({ course: data });
 });
 
-// POST /courses/:id/syllabus/upload — File upload (text extraction placeholder)
-router.post('/:id/syllabus/upload', requireRole('teacher'), async (req: Request, res: Response) => {
-  const { filename } = req.body;
+// POST /courses/:id/syllabus/upload — File upload with real text extraction
+router.post('/:id/syllabus/upload', requireRole('teacher'), syllabusUpload, async (req: Request, res: Response) => {
+  const file = req.file;
+  if (!file) {
+    res.status(400).json({ error: 'No file uploaded' });
+    return;
+  }
 
-  // For now, just acknowledge the upload. In production, this would:
-  // 1. Accept multipart file upload
-  // 2. Extract text from PDF/DOCX using a library
-  // 3. Store the extracted text as syllabus_text
+  let extractedText = '';
 
-  const { data: course } = await supabaseAdmin
+  try {
+    if (file.mimetype === 'application/pdf') {
+      const pdfParse = (await import('pdf-parse')).default;
+      const pdfData = await pdfParse(file.buffer);
+      extractedText = pdfData.text?.trim() || '';
+      if (!extractedText) {
+        // Scanned PDF — try sending to AI for OCR
+        const provider = createLLMProvider();
+        const base64 = file.buffer.toString('base64');
+        extractedText = await provider.complete({
+          systemPrompt: 'Extract ALL text content from this document image. Return only the extracted text, no commentary.',
+          userMessage: [
+            { type: 'text', text: 'Extract the text from this scanned document:' },
+            { type: 'image_url', image_url: { url: `data:application/pdf;base64,${base64}` } },
+          ],
+          maxTokens: 8000,
+          temperature: 0.1,
+        });
+      }
+    } else if (file.mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || file.mimetype === 'application/msword') {
+      const mammoth = await import('mammoth');
+      const result = await mammoth.extractRawText({ buffer: file.buffer });
+      extractedText = result.value?.trim() || '';
+    } else if (file.mimetype === 'text/plain') {
+      extractedText = file.buffer.toString('utf-8').trim();
+    } else if (file.mimetype.startsWith('image/')) {
+      // Image file — use AI vision to extract text
+      const provider = createLLMProvider();
+      const base64 = file.buffer.toString('base64');
+      extractedText = await provider.complete({
+        systemPrompt: 'Extract ALL text content from this image of a syllabus or course document. Return only the extracted text, preserving the structure (chapters, topics, subtopics).',
+        userMessage: [
+          { type: 'text', text: 'Extract the syllabus text from this image:' },
+          { type: 'image_url', image_url: { url: `data:${file.mimetype};base64,${base64}` } },
+        ],
+        maxTokens: 8000,
+        temperature: 0.1,
+      });
+    }
+  } catch (err) {
+    console.error('File extraction failed:', err);
+    res.status(500).json({ error: 'Failed to extract text from file. Please try pasting the text directly.' });
+    return;
+  }
+
+  if (!extractedText || extractedText.length < 20) {
+    res.status(400).json({ error: 'Could not extract meaningful text from the file. Please try pasting the syllabus text directly.' });
+    return;
+  }
+
+  // Save extracted text to course
+  await supabaseAdmin
     .from('courses')
-    .select('syllabus_text')
+    .update({ syllabus_text: extractedText, updated_at: new Date().toISOString() })
     .eq('id', req.params.id)
-    .eq('teacher_id', req.user!.id)
-    .single();
-
-  const extractedText = course?.syllabus_text || `[Uploaded file: ${filename || 'document'}. Text extraction pending.]`;
+    .eq('teacher_id', req.user!.id);
 
   res.json({
-    course: course,
     extracted_text: extractedText,
-    filename: filename || 'uploaded_file',
+    filename: file.originalname,
+    characters: extractedText.length,
   });
 });
 
-// POST /courses/:id/process — Trigger LLM deconstruction (SSE)
+// POST /courses/:id/process — Trigger LLM deconstruction (background)
 router.post('/:id/process', requireRole('teacher'), async (req: Request, res: Response) => {
   const { data: course, error } = await supabaseAdmin
     .from('courses')
@@ -177,47 +319,54 @@ router.post('/:id/process', requireRole('teacher'), async (req: Request, res: Re
     return;
   }
 
-  // Set up SSE
-  res.writeHead(200, {
-    'Content-Type': 'text/event-stream',
-    'Cache-Control': 'no-cache',
-    'Connection': 'keep-alive',
-  });
+  if (course.status === 'processing') {
+    res.json({ message: 'Already processing', status: 'processing' });
+    return;
+  }
 
-  const sendEvent = (data: object) => {
-    res.write(`data: ${JSON.stringify(data)}\n\n`);
-  };
+  if (course.status === 'active') {
+    res.status(400).json({ error: 'Cannot re-process an active course. This would overwrite existing content and student data.' });
+    return;
+  }
 
-  try {
-    // Update status
-    await supabaseAdmin
-      .from('courses')
-      .update({ status: 'processing', processing_started_at: new Date().toISOString(), processing_error: null })
-      .eq('id', course.id);
+  // Mark as processing and respond immediately
+  await supabaseAdmin
+    .from('courses')
+    .update({ status: 'processing', processing_started_at: new Date().toISOString(), processing_error: null })
+    .eq('id', course.id);
 
-    const provider = createLLMProvider(course.llm_provider || 'anthropic');
-    const service = new DeconstructionService(provider, supabaseAdmin);
+  res.json({ message: 'Processing started', status: 'processing' });
 
-    await service.processSyllabus(
-      course.id,
-      course.syllabus_text,
-      (step, name, status) => { sendEvent({ type: 'step', step, name, status }); },
-      course.total_sessions || undefined,
-      course.session_duration_minutes || undefined,
-    );
+  // Process in background (non-blocking)
+  const provider = createLLMProvider(course.llm_provider || 'anthropic');
+  const service = new DeconstructionService(provider, supabaseAdmin);
 
-    // Quizzes are generated per-lesson on demand (not batch)
-    sendEvent({ type: 'complete' });
-  } catch (err: unknown) {
+  service.processSyllabus(
+    course.id,
+    course.syllabus_text,
+    () => {}, // No SSE callbacks needed
+    course.total_sessions || undefined,
+    course.session_duration_minutes || undefined,
+  ).then(async () => {
+    console.log(`Deconstruction complete for course ${course.id}`);
+
+    // After deconstruction, detect cross-course dependencies (non-blocking)
+    try {
+      const edgesFound = await detectCrossCourseEdges(supabaseAdmin, provider, course.id, req.user!.id);
+      if (edgesFound > 0) {
+        console.log(`Cross-course detection: found ${edgesFound} new edges for course ${course.id}`);
+      }
+    } catch (ccErr) {
+      console.error('Cross-course detection failed (non-blocking):', (ccErr as Error).message);
+    }
+  }).catch(async (err: unknown) => {
     const message = err instanceof Error ? err.message : 'Unknown error';
+    console.error(`Deconstruction failed for course ${course.id}:`, message);
     await supabaseAdmin
       .from('courses')
       .update({ status: 'draft', processing_error: message })
       .eq('id', course.id);
-    sendEvent({ type: 'error', error: message });
-  } finally {
-    res.end();
-  }
+  });
 });
 
 // POST /courses/:id/finalize
@@ -239,17 +388,16 @@ router.post('/:id/finalize', requireRole('teacher'), async (req: Request, res: R
     return;
   }
 
-  // Check that all gates are accepted
-  const { data: draftGates } = await supabaseAdmin
-    .from('gates')
-    .select('id')
-    .eq('course_id', course.id)
-    .eq('status', 'draft');
-
-  if (draftGates && draftGates.length > 0) {
-    res.status(400).json({ error: `${draftGates.length} gates still need review` });
-    return;
+  // Auto-accept all draft gates, lessons, scripts, and questions on finalize
+  await supabaseAdmin.from('gates').update({ status: 'accepted' }).eq('course_id', course.id).eq('status', 'draft');
+  await supabaseAdmin.from('lessons').update({ status: 'accepted' }).eq('course_id', course.id).eq('status', 'draft');
+  await supabaseAdmin.from('sub_concepts').update({ status: 'accepted' }).in('gate_id',
+    (await supabaseAdmin.from('gates').select('id').eq('course_id', course.id)).data?.map(g => g.id) || []);
+  const lessonIds = (await supabaseAdmin.from('lessons').select('id').eq('course_id', course.id)).data?.map(l => l.id) || [];
+  if (lessonIds.length > 0) {
+    await supabaseAdmin.from('socratic_scripts').update({ status: 'accepted' }).in('lesson_id', lessonIds);
   }
+  await supabaseAdmin.from('questions').update({ status: 'accepted' }).eq('course_id', course.id).eq('status', 'draft');
 
   // Set course active
   const { data, error: updateError } = await supabaseAdmin

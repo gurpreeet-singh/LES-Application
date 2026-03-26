@@ -1,5 +1,5 @@
 {
-  "name": "@les/web",
+  "name": "@leap/web",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -10,7 +10,7 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@les/shared": "*",
+    "@leap/shared": "*",
     "@supabase/supabase-js": "^2.49.0",
     "@tanstack/react-query": "^5.62.0",
     "react": "^18.3.0",

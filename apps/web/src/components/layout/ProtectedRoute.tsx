@@ -1,7 +1,7 @@
 import { Navigate, Outlet } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { Navbar } from './Navbar';
-import type { UserRole } from '@les/shared';
+import type { UserRole } from '@leap/shared';
 
 export function ProtectedRoute({ allowedRoles }: { allowedRoles: UserRole[] }) {
   const { profile, loading } = useAuth();
@@ -19,7 +19,8 @@ export function ProtectedRoute({ allowedRoles }: { allowedRoles: UserRole[] }) {
   }
 
   if (!allowedRoles.includes(profile.role)) {
-    return <Navigate to={profile.role === 'teacher' ? '/teacher' : '/student'} replace />;
+    const redirectMap: Record<string, string> = { teacher: '/teacher', student: '/student', admin: '/admin' };
+    return <Navigate to={redirectMap[profile.role] || '/login'} replace />;
   }
 
   return (

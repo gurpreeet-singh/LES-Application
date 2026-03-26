@@ -1,5 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { GATE_COLORS } from '@les/shared';
+import { GATE_COLORS } from '@leap/shared';
 
 const GATE_DATA = [
   { number: 1, title: 'Large Numbers & Place Value', short: 'Numbers', period: 'Mar-May', subs: ['Place Value (8-9 digit)', 'Expanded Form', 'Indian vs International System', 'Comparison & Ordering'] },

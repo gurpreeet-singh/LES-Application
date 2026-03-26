@@ -71,19 +71,23 @@ export function ScoreEntryPage() {
     setSaving(false);
   };
 
+  const escCsv = (v: unknown) => { const s = String(v ?? ''); return s.includes(',') || s.includes('"') ? `"${s.replace(/"/g, '""')}"` : s; };
+
   const downloadGradeSheet = () => {
+    if (students.length === 0 || questions.length === 0) return;
+    const totalMax = getTotalMax();
     const headers = ['#', 'Student', 'Roll', ...questions.map((_, i) => `Q${i + 1}`), 'Total', 'Max', '%'];
     const rows = students.map((s, si) => [
-      si + 1, s.full_name, s.roll_number || '',
+      si + 1, escCsv(s.full_name), escCsv(s.roll_number || ''),
       ...questions.map(q => scores[s.id]?.[q.id] || 0),
-      getStudentTotal(s.id), getTotalMax(),
-      `${Math.round((getStudentTotal(s.id) / getTotalMax()) * 100)}%`,
+      getStudentTotal(s.id), totalMax,
+      totalMax > 0 ? `${Math.round((getStudentTotal(s.id) / totalMax) * 100)}%` : '0%',
     ]);
     const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
     const blob = new Blob([csv], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = url; a.download = `scores_session_${lesson?.lesson_number || ''}.csv`; a.click();
+    a.href = url; a.download = `scores_lesson_${lesson?.lesson_number || 'unknown'}.csv`; a.click();
     URL.revokeObjectURL(url);
   };
 
@@ -142,7 +146,7 @@ export function ScoreEntryPage() {
                   <tr key={s.id} className={si % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}>
                     <td className="sticky left-0 bg-inherit py-2 px-3 z-10">
                       <div className="flex items-center gap-2">
-                        <div className="w-6 h-6 rounded-full bg-les-navy text-white flex items-center justify-center text-[10px] font-bold">{s.full_name.charAt(0)}</div>
+                        <div className="w-6 h-6 rounded-full bg-leap-navy text-white flex items-center justify-center text-[10px] font-bold">{s.full_name.charAt(0)}</div>
                         <div>
                           <p className="text-[12px] font-medium text-gray-900">{s.full_name}</p>
                           {s.roll_number && <p className="text-[10px] text-gray-400">Roll: {s.roll_number}</p>}
@@ -157,7 +161,7 @@ export function ScoreEntryPage() {
                           max={getMaxScore(q)}
                           value={scores[s.id]?.[q.id] ?? ''}
                           onChange={e => updateScore(s.id, q.id, parseInt(e.target.value) || 0)}
-                          className="w-10 h-8 text-center text-[12px] font-bold border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-les-blue/30 focus:border-les-blue"
+                          className="w-10 h-8 text-center text-[12px] font-bold border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-leap-blue/30 focus:border-leap-blue"
                           placeholder="—"
                         />
                       </td>
@@ -167,7 +171,7 @@ export function ScoreEntryPage() {
                       <span className="text-[10px] text-gray-400">/{max}</span>
                     </td>
                     <td className="py-2 px-3 text-center">
-                      <span className={`text-[13px] font-black ${pct >= 75 ? 'text-les-green' : pct >= 60 ? 'text-les-amber' : 'text-les-red'}`}>{pct}%</span>
+                      <span className={`text-[13px] font-black ${pct >= 75 ? 'text-leap-green' : pct >= 60 ? 'text-leap-amber' : 'text-leap-red'}`}>{pct}%</span>
                     </td>
                   </tr>
                 );

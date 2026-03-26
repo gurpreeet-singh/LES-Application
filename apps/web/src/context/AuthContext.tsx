@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from 'react';
 import { api } from '../lib/api';
-import type { Profile } from '@les/shared';
+import type { Profile } from '@leap/shared';
 
 interface AuthState {
   user: { id: string } | null;

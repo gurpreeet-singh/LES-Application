@@ -33,7 +33,7 @@ body {
            hover:shadow-card-hover transition-all duration-200 cursor-pointer;
   }
   .btn-primary {
-    @apply px-4 py-2.5 rounded-xl text-[13px] font-bold text-white bg-les-navy
+    @apply px-4 py-2.5 rounded-xl text-[13px] font-bold text-white bg-leap-navy
            border-none cursor-pointer hover:opacity-90 transition-opacity
            disabled:opacity-40 disabled:cursor-not-allowed;
   }
@@ -51,22 +51,22 @@ body {
   }
   .input-field {
     @apply w-full border border-gray-200 rounded-xl px-3.5 py-2.5 text-sm
-           focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400
+           focus:outline-none focus:ring-2 focus:ring-leap-blue/30 focus:border-leap-blue
            transition-all placeholder:text-gray-400;
   }
   .badge {
     @apply text-[10px] font-bold px-2 py-0.5 rounded-full inline-block;
   }
   .section-header {
-    @apply text-[11px] font-bold uppercase tracking-wider text-gray-400;
+    @apply text-[11px] font-bold uppercase tracking-wider text-gray-500;
   }
   .pill-tab {
     @apply px-4 py-2 rounded-xl text-[13px] font-bold transition-all cursor-pointer;
   }
   .pill-tab-active {
-    @apply pill-tab bg-les-navy text-white;
+    @apply pill-tab bg-leap-navy text-white;
   }
   .pill-tab-inactive {
-    @apply pill-tab text-gray-500 hover:bg-gray-100;
+    @apply pill-tab text-gray-600 hover:bg-gray-100;
   }
 }

@@ -51,12 +51,16 @@ export function GradeAnswerSheetsPage() {
   const handleProcess = async () => {
     setProcessing(true);
     try {
-      const result = await api.post<{ grades: GradeResult[] }>(`/courses/${courseId}/lessons/${lessonId}/grade`, {
-        file_count: uploadedFiles.length,
-      });
+      const formData = new FormData();
+      uploadedFiles.forEach(f => formData.append('answer_sheets', f));
+
+      const result = await api.postForm<{ grades: GradeResult[] }>(
+        `/courses/${courseId}/lessons/${lessonId}/grade`,
+        formData
+      );
       setGrades(result.grades || []);
-    } catch {
-      // Mock grades for demo
+    } catch (err) {
+      console.error('Grading failed:', err);
     }
     setProcessing(false);
   };
@@ -65,19 +69,22 @@ export function GradeAnswerSheetsPage() {
     alert(`Grades confirmed for ${grades.length} students. Scores saved to analytics.`);
   };
 
+  const escCsv = (v: unknown) => { const s = String(v ?? ''); return s.includes(',') || s.includes('"') || s.includes('\n') ? `"${s.replace(/"/g, '""')}"` : s; };
+
   const downloadGradeReport = () => {
+    if (grades.length === 0) return;
     const headers = ['#', 'Student Name', 'Roll No.', ...questions.map((_, i) => `Q${i + 1}`), 'Total', 'Max', 'Percentage'];
     const rows = grades.map((g, i) => [
-      i + 1, g.student_name, g.roll_number,
+      i + 1, escCsv(g.student_name), escCsv(g.roll_number),
       ...g.answers.map(a => a.score),
-      g.total_score, g.max_score, `${Math.round((g.total_score / g.max_score) * 100)}%`,
+      g.total_score, g.max_score, g.max_score > 0 ? `${Math.round((g.total_score / g.max_score) * 100)}%` : '0%',
     ]);
     const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
     const blob = new Blob([csv], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `grade_report_session_${lesson?.lesson_number || ''}.csv`;
+    a.download = `grade_report_lesson_${lesson?.lesson_number || 'unknown'}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -145,7 +152,7 @@ export function GradeAnswerSheetsPage() {
             </div>
           </div>
           <div className="bg-gray-200 rounded-full h-2 mt-4 overflow-hidden">
-            <div className="bg-gradient-to-r from-les-blue to-les-navy h-full rounded-full animate-pulse" style={{ width: '60%' }} />
+            <div className="bg-gradient-to-r from-leap-blue to-leap-navy h-full rounded-full animate-pulse" style={{ width: '60%' }} />
           </div>
         </div>
       )}
@@ -164,19 +171,19 @@ export function GradeAnswerSheetsPage() {
             </div>
             <div className="grid grid-cols-4 gap-3">
               <div className="text-center">
-                <p className="text-lg font-black text-les-navy">{grades.length}</p>
+                <p className="text-lg font-black text-leap-navy">{grades.length}</p>
                 <p className="text-[10px] text-gray-400">Students Graded</p>
               </div>
               <div className="text-center">
-                <p className="text-lg font-black text-les-green">{Math.round(grades.reduce((a, g) => a + g.total_score, 0) / grades.length)}</p>
+                <p className="text-lg font-black text-leap-green">{Math.round(grades.reduce((a, g) => a + g.total_score, 0) / grades.length)}</p>
                 <p className="text-[10px] text-gray-400">Avg Score</p>
               </div>
               <div className="text-center">
-                <p className="text-lg font-black text-les-blue">{grades[0]?.max_score || 0}</p>
+                <p className="text-lg font-black text-leap-blue">{grades[0]?.max_score || 0}</p>
                 <p className="text-[10px] text-gray-400">Max Marks</p>
               </div>
               <div className="text-center">
-                <p className="text-lg font-black text-les-purple">{Math.round((grades.reduce((a, g) => a + g.total_score, 0) / (grades.length * (grades[0]?.max_score || 1))) * 100)}%</p>
+                <p className="text-lg font-black text-leap-purple">{Math.round((grades.reduce((a, g) => a + g.total_score, 0) / (grades.length * (grades[0]?.max_score || 1))) * 100)}%</p>
                 <p className="text-[10px] text-gray-400">Class Average</p>
               </div>
             </div>
@@ -190,7 +197,7 @@ export function GradeAnswerSheetsPage() {
               <div key={g.student_id} className="card overflow-hidden">
                 <button onClick={() => setExpandedStudent(isExpanded ? null : g.student_id)} className="w-full text-left p-4 flex items-center justify-between hover:bg-gray-50 transition">
                   <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-full bg-les-navy text-white flex items-center justify-center text-[11px] font-bold">{g.student_name.charAt(0)}</div>
+                    <div className="w-8 h-8 rounded-full bg-leap-navy text-white flex items-center justify-center text-[11px] font-bold">{g.student_name.charAt(0)}</div>
                     <div>
                       <p className="text-sm font-bold text-gray-900">{g.student_name}</p>
                       <p className="text-[10px] text-gray-500">Roll: {g.roll_number}</p>
@@ -205,7 +212,7 @@ export function GradeAnswerSheetsPage() {
                       ))}
                     </div>
                     <div className="text-right">
-                      <p className={`text-sm font-black ${pct >= 75 ? 'text-les-green' : pct >= 60 ? 'text-les-amber' : 'text-les-red'}`}>
+                      <p className={`text-sm font-black ${pct >= 75 ? 'text-leap-green' : pct >= 60 ? 'text-leap-amber' : 'text-leap-red'}`}>
                         {g.total_score}/{g.max_score}
                       </p>
                       <p className="text-[10px] text-gray-400">{pct}%</p>

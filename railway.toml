@@ -1,6 +1,6 @@
 [build]
 builder = "NIXPACKS"
-buildCommand = "echo 'Skip build — using tsx runtime'"
+buildCommand = "npm install && VITE_API_URL=/api/v1 npm run build:web"
 
 [deploy]
 startCommand = "cd apps/api && npx tsx src/index.ts"

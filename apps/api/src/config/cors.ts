@@ -8,20 +8,17 @@ export const corsMiddleware = cors({
 
     const allowedOrigins = [
       env.FRONTEND_URL,
-      'https://dist-rho-lilac.vercel.app',
+      'https://leap-ikigai.netlify.app',
+      'https://leap-lmgc.netlify.app',
       'http://localhost:5173',
       'http://localhost:5180',
-      'http://localhost:5190',
-      'http://127.0.0.1:5173',
-      'http://127.0.0.1:5180',
     ];
 
-    // Also allow any *.vercel.app subdomain
-    if (origin.endsWith('.vercel.app') || allowedOrigins.includes(origin)) {
+    if (allowedOrigins.includes(origin)) {
       return callback(null, true);
     }
 
-    callback(null, true); // Allow all for now — tighten in production
+    callback(null, false);
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],

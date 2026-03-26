@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { api } from '../../lib/api';
 import { useAuth } from '../../context/AuthContext';
 import { JourneySteps } from '../../components/shared/JourneySteps';
-import type { Course } from '@les/shared';
+import type { Course } from '@leap/shared';
 
 interface SessionAnalytics {
   current_session: number;
@@ -74,13 +74,45 @@ export function TeacherDashboardPage() {
         <Link to="/teacher/courses" className="btn-primary">Manage Courses</Link>
       </div>
 
+      {/* Program Banner — shown for college teachers with 3+ active courses */}
+      {activeCourses.length >= 3 && (
+        <div className="card p-5 mb-6 border-l-4 border-l-purple-500 bg-gradient-to-r from-purple-50/50 to-white">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-sm font-black text-purple-900 mb-1">Cross-Course Knowledge Graph</h2>
+              <p className="text-[12px] text-gray-600">Your courses have cross-course dependencies. View the unified knowledge graph to see how topics connect across courses and identify student bottlenecks.</p>
+            </div>
+            <Link to={`/teacher/programs/prog-default`} className="btn-primary text-[11px] py-1.5 bg-purple-700 whitespace-nowrap ml-4">View Program Graph</Link>
+          </div>
+        </div>
+      )}
+
+      {/* Welcome Guide Banner — shown when teacher has only demo course or just signed up */}
+      {courses.length <= 1 && (
+        <div className="card p-5 mb-6 border-l-4 border-l-leap-blue bg-gradient-to-r from-blue-50/50 to-white">
+          <div className="flex items-start justify-between">
+            <div>
+              <h2 className="text-sm font-black text-leap-navy mb-1">Welcome to LEAP</h2>
+              <p className="text-[12px] text-gray-600 mb-3 max-w-lg">
+                We've set up a <strong>demo course</strong> (Class 5 Mathematics) so you can explore all features — lessons, Socratic scripts, analytics, AI grading, and more.
+                When you're ready, create your own course with your syllabus.
+              </p>
+              <div className="flex gap-2">
+                <Link to="/teacher/guide" className="btn-secondary text-[11px] py-1.5">Read the Platform Guide</Link>
+                <Link to="/teacher/courses" className="btn-primary text-[11px] py-1.5">Create Your Own Course</Link>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Overview Stats */}
-      <div className="grid grid-cols-4 gap-3 mb-6">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
         <div className="card p-4">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-les-navy/10 flex items-center justify-center text-lg">📚</div>
+            <div className="w-10 h-10 rounded-xl bg-leap-navy/10 flex items-center justify-center text-lg">📚</div>
             <div>
-              <p className="text-2xl font-black text-les-navy">{courses.length}</p>
+              <p className="text-2xl font-black text-leap-navy">{courses.length}</p>
               <p className="text-[11px] text-gray-500">Total Courses</p>
             </div>
           </div>
@@ -89,7 +121,7 @@ export function TeacherDashboardPage() {
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-green-100 flex items-center justify-center text-lg">✅</div>
             <div>
-              <p className="text-2xl font-black text-les-green">{activeCourses.length}</p>
+              <p className="text-2xl font-black text-leap-green">{activeCourses.length}</p>
               <p className="text-[11px] text-gray-500">Active Courses</p>
             </div>
           </div>
@@ -98,7 +130,7 @@ export function TeacherDashboardPage() {
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-blue-100 flex items-center justify-center text-lg">🎓</div>
             <div>
-              <p className="text-2xl font-black text-les-blue">{totalStudents || '—'}</p>
+              <p className="text-2xl font-black text-leap-blue">{totalStudents || '—'}</p>
               <p className="text-[11px] text-gray-500">Total Students</p>
             </div>
           </div>
@@ -107,7 +139,7 @@ export function TeacherDashboardPage() {
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center text-lg">⚠️</div>
             <div>
-              <p className="text-2xl font-black text-les-amber">{reviewCourses.length + draftCourses.length}</p>
+              <p className="text-2xl font-black text-leap-amber">{reviewCourses.length + draftCourses.length}</p>
               <p className="text-[11px] text-gray-500">Needs Action</p>
             </div>
           </div>
@@ -118,7 +150,7 @@ export function TeacherDashboardPage() {
       {activeCourses.length > 0 && (
         <div className="card p-5 mb-6">
           <h2 className="section-header mb-4 flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-les-blue inline-block" />
+            <span className="w-2 h-2 rounded-full bg-leap-blue inline-block" />
             Today's Agenda — {new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'short' })}
           </h2>
           <div className="space-y-4">
@@ -133,8 +165,8 @@ export function TeacherDashboardPage() {
                 <div key={c.id} className="border border-gray-100 rounded-xl p-4">
                   <div className="flex items-center justify-between mb-3">
                     <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-xl bg-les-navy/10 flex items-center justify-center">
-                        <span className="text-les-navy font-black text-[13px]">{c.class_level || 'C'}{c.section || ''}</span>
+                      <div className="w-10 h-10 rounded-xl bg-leap-navy/10 flex items-center justify-center">
+                        <span className="text-leap-navy font-black text-[13px]">{c.class_level || 'C'}{c.section || ''}</span>
                       </div>
                       <div>
                         <p className="text-sm font-bold text-gray-900">{c.title}</p>
@@ -143,7 +175,7 @@ export function TeacherDashboardPage() {
                     </div>
                     <div className="text-right">
                       <p className="text-[11px] text-gray-400">Progress</p>
-                      <p className="text-sm font-black text-les-navy">{completionPct}%</p>
+                      <p className="text-sm font-black text-leap-navy">{completionPct}%</p>
                     </div>
                   </div>
 
@@ -152,7 +184,7 @@ export function TeacherDashboardPage() {
                     <div className="flex items-center justify-between">
                       <div>
                         <div className="flex items-center gap-2 mb-1">
-                          <span className="badge bg-les-navy text-white text-[9px]">Session {currentSessionNum}</span>
+                          <span className="badge bg-leap-navy text-white text-[9px]">Session {currentSessionNum}</span>
                           {currentSessionInfo && (
                             <span className="badge text-white text-[9px]" style={{ background: currentSessionInfo.gate_color }}>
                               G{currentSessionInfo.gate_number}: {currentSessionInfo.gate_short_title}

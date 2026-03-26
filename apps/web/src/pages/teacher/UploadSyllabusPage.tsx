@@ -1,8 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../../lib/api';
 import { FileUploadZone } from '../../components/shared/FileUploadZone';
-import type { Course } from '@les/shared';
+import type { Course } from '@leap/shared';
 
 const STEPS = [
   'Extract Core Concepts',
@@ -22,7 +22,7 @@ export function UploadSyllabusPage() {
   const navigate = useNavigate();
   const [course, setCourse] = useState<Course | null>(null);
   const [syllabusText, setSyllabusText] = useState('');
-  const [llmProvider, setLlmProvider] = useState<'anthropic' | 'openai'>('anthropic');
+  const llmProvider = 'openrouter'; // Uses best available AI model
   const [totalSessions, setTotalSessions] = useState<number>(30);
   const [sessionDuration, setSessionDuration] = useState<number>(40);
   const [processing, setProcessing] = useState(false);
@@ -40,8 +40,15 @@ export function UploadSyllabusPage() {
 
   const completedSteps = Object.values(stepStatuses).filter(s => s === 'complete').length;
 
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => { if (pollRef.current) clearInterval(pollRef.current); };
+  }, []);
+
   const handleProcess = async () => {
-    if (!syllabusText.trim()) return;
+    if (!syllabusText.trim() || syllabusText.trim().length < 50) return;
 
     setError('');
     setProcessing(true);
@@ -55,62 +62,58 @@ export function UploadSyllabusPage() {
       session_duration_minutes: sessionDuration,
     });
 
-    // Start SSE processing
-    const stored = localStorage.getItem('les_demo_session');
-    const token = stored ? JSON.parse(stored)?.session?.access_token : '';
-
+    // Trigger background processing
     try {
-      const apiUrl = import.meta.env.VITE_API_URL || '/api/v1';
-      const res = await fetch(`${apiUrl}/courses/${courseId}/process`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      if (!res.ok) {
-        throw new Error('Failed to start processing');
-      }
-
-      const reader = res.body?.getReader();
-      const decoder = new TextDecoder();
-
-      if (reader) {
-        let buffer = '';
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split('\n\n');
-          buffer = lines.pop() || '';
-
-          for (const line of lines) {
-            if (line.startsWith('data: ')) {
-              try {
-                const event = JSON.parse(line.slice(6));
-                if (event.type === 'step') {
-                  setStepStatuses(prev => ({ ...prev, [event.step]: event.status }));
-                } else if (event.type === 'complete') {
-                  navigate(`/teacher/courses/${courseId}/review`);
-                  return;
-                } else if (event.type === 'error') {
-                  setError(event.error);
-                  setProcessing(false);
-                  return;
-                }
-              } catch {
-                // Skip malformed events
-              }
-            }
-          }
-        }
-      }
+      await api.post(`/courses/${courseId}/process`, {});
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Processing failed');
+      setError(err instanceof Error ? err.message : 'Failed to start processing');
       setProcessing(false);
+      return;
     }
+
+    // Step 1 starts immediately as "processing"
+    setStepStatuses({ 1: 'processing' });
+
+    // Advance steps every 20s (10 steps over ~3-4 min of processing)
+    let currentStep = 1;
+    const stepTimer = setInterval(() => {
+      if (currentStep < STEPS.length) {
+        setStepStatuses(prev => ({
+          ...prev,
+          [currentStep]: 'complete',
+          [currentStep + 1]: 'processing',
+        }));
+        currentStep++;
+      }
+    }, 20000);
+
+    // Poll course status every 5 seconds, 8 minute timeout
+    const startTime = Date.now();
+    pollRef.current = setInterval(async () => {
+      try {
+        const data = await api.get<{ course: { status: string; processing_error?: string | null } }>(`/courses/${courseId}`);
+        const status = data.course.status;
+
+        if (status === 'review' || status === 'active') {
+          clearInterval(stepTimer);
+          if (pollRef.current) clearInterval(pollRef.current);
+          setStepStatuses(Object.fromEntries(STEPS.map((_, i) => [i + 1, 'complete'])));
+          setTimeout(() => navigate(`/teacher/courses/${courseId}/review`), 800);
+        } else if (status === 'draft') {
+          clearInterval(stepTimer);
+          if (pollRef.current) clearInterval(pollRef.current);
+          setError(data.course.processing_error || 'Processing failed. Please try again with a shorter syllabus or paste the text directly.');
+          setProcessing(false);
+        } else if (Date.now() - startTime > 8 * 60 * 1000) {
+          clearInterval(stepTimer);
+          if (pollRef.current) clearInterval(pollRef.current);
+          setError('Processing is taking longer than expected. The AI may still be working — please check your course in a few minutes.');
+          setProcessing(false);
+        }
+      } catch {
+        // Network error during poll — keep trying
+      }
+    }, 5000);
   };
 
   if (!course) {
@@ -126,7 +129,21 @@ export function UploadSyllabusPage() {
   return (
     <div className="max-w-3xl mx-auto">
       <h1 className="text-xl font-black text-gray-900 mb-1">{course.title}</h1>
-      <p className="text-[12px] text-gray-500 mb-6">Upload or paste the syllabus for AI deconstruction</p>
+      <p className="text-[12px] text-gray-500 mb-4">Upload or paste the syllabus for AI deconstruction</p>
+
+      {/* Syllabus Best Practices Tip */}
+      <div className="card p-4 mb-6 border-l-4 border-l-leap-blue bg-blue-50/20">
+        <h3 className="text-[11px] font-black text-leap-navy mb-2">Tips for Best Results</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-1.5">
+          <div className="flex items-start gap-2"><span className="text-green-500 text-[10px] mt-0.5">&#10003;</span><span className="text-[11px] text-gray-600">List topics with clear hierarchy (chapters, units, sub-topics)</span></div>
+          <div className="flex items-start gap-2"><span className="text-green-500 text-[10px] mt-0.5">&#10003;</span><span className="text-[11px] text-gray-600">Include prerequisite info ("requires knowledge of X")</span></div>
+          <div className="flex items-start gap-2"><span className="text-green-500 text-[10px] mt-0.5">&#10003;</span><span className="text-[11px] text-gray-600">Mention learning objectives or outcomes if available</span></div>
+          <div className="flex items-start gap-2"><span className="text-green-500 text-[10px] mt-0.5">&#10003;</span><span className="text-[11px] text-gray-600">Include textbook chapter names for better context</span></div>
+          <div className="flex items-start gap-2"><span className="text-red-400 text-[10px] mt-0.5">&#10007;</span><span className="text-[11px] text-gray-600">Avoid uploading just a list of page numbers</span></div>
+          <div className="flex items-start gap-2"><span className="text-red-400 text-[10px] mt-0.5">&#10007;</span><span className="text-[11px] text-gray-600">Avoid vague topic names like "Chapter 3" without context</span></div>
+        </div>
+        <p className="text-[10px] text-gray-400 mt-2">The more descriptive your syllabus, the better the AI generates knowledge graphs, lesson plans, and quizzes.</p>
+      </div>
 
       {!processing ? (
         <div className="card p-6">
@@ -138,12 +155,17 @@ export function UploadSyllabusPage() {
                 if (text) {
                   setSyllabusText(text);
                 } else {
-                  // For non-text files, call the upload endpoint
+                  // Upload file for server-side text extraction (PDF, DOCX, images)
+                  setError('');
                   try {
-                    const result = await api.post<{ extracted_text: string }>(`/courses/${courseId}/syllabus/upload`, { filename: file.name });
-                    if (result.extracted_text) setSyllabusText(result.extracted_text);
-                  } catch {
-                    setSyllabusText(`[File uploaded: ${file.name}]`);
+                    const formData = new FormData();
+                    formData.append('syllabus_file', file);
+                    const result = await api.postForm<{ extracted_text: string; characters: number }>(`/courses/${courseId}/syllabus/upload`, formData);
+                    if (result.extracted_text) {
+                      setSyllabusText(result.extracted_text);
+                    }
+                  } catch (err) {
+                    setError(err instanceof Error ? err.message : 'Failed to extract text from file. Try pasting the text directly.');
                   }
                 }
               }}
@@ -163,33 +185,10 @@ export function UploadSyllabusPage() {
             <p className="text-[11px] text-gray-400 mt-1">{syllabusText.length} characters</p>
           </div>
 
-          {/* AI Provider */}
-          <div className="mb-5">
-            <label className="section-header block mb-2">AI Provider</label>
-            <div className="flex gap-3">
-              <button
-                onClick={() => setLlmProvider('anthropic')}
-                className={`px-4 py-2.5 rounded-xl text-[13px] font-bold border-2 transition-all ${
-                  llmProvider === 'anthropic' ? 'border-les-navy bg-blue-50 text-les-navy' : 'border-gray-200 text-gray-500 hover:border-gray-300'
-                }`}
-              >
-                Claude (Anthropic)
-              </button>
-              <button
-                onClick={() => setLlmProvider('openai')}
-                className={`px-4 py-2.5 rounded-xl text-[13px] font-bold border-2 transition-all ${
-                  llmProvider === 'openai' ? 'border-les-navy bg-blue-50 text-les-navy' : 'border-gray-200 text-gray-500 hover:border-gray-300'
-                }`}
-              >
-                GPT-4o (OpenAI)
-              </button>
-            </div>
-          </div>
-
           {/* Timetable Configuration */}
           <div className="mb-6 p-4 bg-gray-50 rounded-xl border border-gray-100">
             <label className="section-header block mb-3 flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-les-navy inline-block" />
+              <span className="w-2 h-2 rounded-full bg-leap-navy inline-block" />
               Timetable Configuration
             </label>
             <div className="grid grid-cols-2 gap-4">
@@ -223,10 +222,12 @@ export function UploadSyllabusPage() {
 
           <button
             onClick={handleProcess}
-            disabled={!syllabusText.trim()}
+            disabled={!syllabusText.trim() || syllabusText.trim().length < 50}
             className="btn-primary w-full py-3 text-sm"
           >
-            Deconstruct Syllabus
+            {syllabusText.trim().length > 0 && syllabusText.trim().length < 50
+              ? `Need at least 50 characters (${syllabusText.trim().length}/50)`
+              : 'Deconstruct Syllabus with AI'}
           </button>
         </div>
       ) : (
@@ -237,13 +238,18 @@ export function UploadSyllabusPage() {
           {/* Progress bar */}
           <div className="bg-gray-200 rounded-full h-2.5 mb-6 overflow-hidden">
             <div
-              className="bg-gradient-to-r from-les-blue to-les-navy h-full rounded-full transition-all duration-500 ease-out"
+              className="bg-gradient-to-r from-leap-blue to-leap-navy h-full rounded-full transition-all duration-500 ease-out"
               style={{ width: `${(completedSteps / STEPS.length) * 100}%` }}
             />
           </div>
           <p className="text-[11px] text-gray-500 mb-4 -mt-4 text-right">{completedSteps}/{STEPS.length} steps</p>
 
-          {error && <div className="bg-red-50 border border-red-200 text-red-700 text-sm p-3 rounded-xl mb-4">{error}</div>}
+          {error && (
+            <div className="bg-red-50 border border-red-200 text-red-700 text-sm p-3 rounded-xl mb-4">
+              <p>{error}</p>
+              <button onClick={() => { setProcessing(false); setError(''); setStepStatuses({}); }} className="btn-secondary text-[11px] mt-2">Try Again</button>
+            </div>
+          )}
 
           <div className="space-y-2">
             {STEPS.map((name, i) => {
@@ -254,7 +260,7 @@ export function UploadSyllabusPage() {
                 <div key={step} className={`flex items-center gap-3 p-3 rounded-xl border ${bgClass} transition-all`}>
                   <div className="w-6 h-6 flex items-center justify-center">
                     {status === 'complete' && <span className="text-green-600 text-sm font-bold">&#10003;</span>}
-                    {status === 'processing' && <span className="pulse-dot text-les-blue text-sm">&#9679;</span>}
+                    {status === 'processing' && <span className="pulse-dot text-leap-blue text-sm">&#9679;</span>}
                     {status === 'error' && <span className="text-red-600 text-sm font-bold">&#10007;</span>}
                     {status === 'pending' && <span className="text-gray-300 text-sm">&#9675;</span>}
                   </div>

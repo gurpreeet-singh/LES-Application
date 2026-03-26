@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { api } from '../../lib/api';
 import { useAuth } from '../../context/AuthContext';
 import { BloomRadar } from '../../components/shared/BloomRadar';
 import { VelocitySVG } from '../../components/shared/VelocitySVG';
 import { BloomBadge } from '../../components/shared/BloomBadge';
 import { getMasteryColor, getMasteryLabel } from '../../lib/utils';
-import type { Course, StudentGateProgress, Gate, LearningProfile } from '@les/shared';
+import type { Course, StudentGateProgress, Gate, LearningProfile } from '@leap/shared';
 
 export function StudentDashboardPage() {
   const { profile } = useAuth();
@@ -14,26 +15,35 @@ export function StudentDashboardPage() {
   const [progress, setProgress] = useState<(StudentGateProgress & { gate?: { gate_number: number; title: string; short_title: string; color: string } })[]>([]);
   const [learningProfile, setLearningProfile] = useState<LearningProfile | null>(null);
   const [selectedGate, setSelectedGate] = useState<string | null>(null);
+  const [selectedCourseIdx, setSelectedCourseIdx] = useState(0);
   const [loading, setLoading] = useState(true);
+
+  const loadCourseData = async (coursesList: Course[], idx: number) => {
+    if (coursesList.length === 0 || idx >= coursesList.length) return;
+    const courseId = coursesList[idx].id;
+    try {
+      const [kgData, progData] = await Promise.all([
+        api.get<{ gates: Gate[] }>(`/courses/${courseId}/kg/gates`),
+        api.get<{ progress: typeof progress; learning_profile: LearningProfile }>(`/students/${profile!.id}/progress?course_id=${courseId}`),
+      ]);
+      setGates(kgData.gates);
+      setProgress(progData.progress);
+      setLearningProfile(progData.learning_profile);
+      setSelectedGate(null);
+    } catch { /* keep current state */ }
+  };
 
   useEffect(() => {
     api.get<{ courses: Course[] }>('/courses').then(async (d) => {
       setCourses(d.courses);
       if (d.courses.length > 0) {
-        const courseId = d.courses[0].id;
-        const [kgData, progData] = await Promise.all([
-          api.get<{ gates: Gate[] }>(`/courses/${courseId}/kg/gates`),
-          api.get<{ progress: typeof progress; learning_profile: LearningProfile }>(`/students/${profile!.id}/progress?course_id=${courseId}`),
-        ]);
-        setGates(kgData.gates);
-        setProgress(progData.progress);
-        setLearningProfile(progData.learning_profile);
+        await loadCourseData(d.courses, 0);
       }
       setLoading(false);
     });
   }, [profile]);
 
-  if (loading) return <div className="text-gray-500">Loading...</div>;
+  if (loading) return <div className="animate-pulse space-y-4"><div className="h-8 bg-gray-200 rounded w-48" /><div className="grid grid-cols-2 md:grid-cols-4 gap-4">{[1,2,3,4].map(i => <div key={i} className="card p-4 h-20" />)}</div><div className="card p-6 h-64" /></div>;
 
   if (courses.length === 0) {
     return (
@@ -58,12 +68,23 @@ export function StudentDashboardPage() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Hello, {profile?.full_name}</h1>
-          <p className="text-sm text-gray-500">{courses[0].title} | Overall: {overallMastery}%</p>
+          <p className="text-sm text-gray-500">{courses[selectedCourseIdx]?.title} | Overall: {overallMastery}%</p>
         </div>
+        {courses.length > 1 && (
+          <select
+            value={selectedCourseIdx}
+            onChange={e => { const idx = Number(e.target.value); setSelectedCourseIdx(idx); loadCourseData(courses, idx); }}
+            className="input-field py-2 px-3 text-[12px] w-auto"
+          >
+            {courses.map((c, i) => (
+              <option key={c.id} value={i}>{c.title}</option>
+            ))}
+          </select>
+        )}
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
         <div className="bg-white border border-gray-200 rounded-xl p-4">
           <p className="text-2xl font-bold text-green-600">{gatesMastered}</p>
           <p className="text-xs text-gray-500">Gates Mastered</p>
@@ -82,7 +103,7 @@ export function StudentDashboardPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-4 gap-5">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-5">
         {/* KG Journey + Detail */}
         <div className="col-span-3">
           {/* Gate Journey */}
@@ -107,6 +128,7 @@ export function StudentDashboardPage() {
                     <div className="text-xs font-semibold mt-1" style={{ color: g.color }}>G{g.gate_number}</div>
                     <div className="text-xs text-gray-600 mt-0.5">{g.short_title}</div>
                     {isLocked && <div className="text-xs mt-1">🔒</div>}
+                    {!isLocked && <Link to={`/student/courses/${courses[selectedCourseIdx]?.id}/quiz/${g.id}`} className="text-[9px] font-bold text-white px-2 py-0.5 rounded-lg mt-1 inline-block" style={{ background: g.color }} onClick={e => e.stopPropagation()}>Take Quiz</Link>}
                     {p?.bloom_ceiling && <BloomBadge level={p.bloom_ceiling} className="mt-1" />}
                   </button>
                 );
@@ -121,7 +143,7 @@ export function StudentDashboardPage() {
                 <h3 className="font-semibold text-gray-900">G{selGate.gate_number}: {selGate.title}</h3>
                 <button onClick={() => setSelectedGate(null)} className="text-gray-400 hover:text-gray-600">&#10005;</button>
               </div>
-              <div className="grid grid-cols-3 gap-5">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
                 <div>
                   <p className="text-xs font-semibold text-gray-500 mb-2">Sub-Concepts</p>
                   {selGate.sub_concepts?.map(sc => (

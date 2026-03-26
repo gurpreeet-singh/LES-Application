@@ -4,12 +4,12 @@ export default {
   theme: {
     extend: {
       colors: {
-        'les-navy': '#1B3A6B',
-        'les-blue': '#2E75B6',
-        'les-green': '#1E7E34',
-        'les-purple': '#7C3AED',
-        'les-amber': '#B45309',
-        'les-red': '#DC2626',
+        'leap-navy': '#1B3A6B',
+        'leap-blue': '#2E75B6',
+        'leap-green': '#1E7E34',
+        'leap-purple': '#7C3AED',
+        'leap-amber': '#B45309',
+        'leap-red': '#DC2626',
       },
       boxShadow: {
         'card': '0 1px 3px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.06)',

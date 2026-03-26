@@ -6,7 +6,8 @@ import { SkeletonPage } from '../../components/shared/LoadingSkeleton';
 import { generateQuizSheetPDF, generateAnswerKeyPDF } from '../../lib/quizPdfGenerator';
 import { useAuth } from '../../context/AuthContext';
 
-type Tab = 'plan' | 'socratic' | 'quiz';
+import { LessonAnalysis } from '../../components/teacher/LessonAnalysis';
+type Tab = 'plan' | 'socratic' | 'quiz' | 'analysis';
 
 function downloadCSV(questions: any[], lessonTitle: string) {
   const headers = ['#', 'Question', 'Type', 'Bloom Level', 'Correct Answer', 'Options', 'Rubric'];
@@ -85,17 +86,35 @@ export function LessonDetailPage() {
 
   const [generatingQuiz, setGeneratingQuiz] = useState(false);
 
-  const handleGenerateQuiz = async () => {
+  const handleGenerateQuiz = async (force = false) => {
     setGeneratingQuiz(true);
     try {
-      const result = await api.post<{ questions: any[] }>(`/courses/${courseId}/questions/generate/${lessonId}`);
-      setQuestions(prev => [...prev, ...(result.questions || [])]);
+      // Use direct API for LLM calls to avoid Netlify proxy timeout
+      const directUrl = import.meta.env.VITE_DIRECT_API_URL || import.meta.env.VITE_API_URL || '/api/v1';
+      const stored = localStorage.getItem('les_demo_session');
+      const token = stored ? JSON.parse(stored)?.session?.access_token : '';
+      const res = await fetch(`${directUrl}/courses/${courseId}/questions/generate/${lessonId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify(force ? { force: true } : {}),
+      });
+      if (res.ok) {
+        const result = await res.json();
+        if (result.questions?.length) setQuestions(result.questions);
+      }
       setTab('quiz');
     } catch (err) {
-      // Error handled by api.ts toast
+      alert(err instanceof Error ? err.message : 'Quiz generation failed. Please try again.');
     }
     setGeneratingQuiz(false);
   };
+
+  // Auto-generate quiz when lesson has 0 questions and user opens quiz tab
+  useEffect(() => {
+    if (tab === 'quiz' && questions.length === 0 && !generatingQuiz && lesson) {
+      handleGenerateQuiz();
+    }
+  }, [tab]);
 
   if (loading || !lesson) return <SkeletonPage />;
 
@@ -107,6 +126,7 @@ export function LessonDetailPage() {
     { key: 'plan', label: 'Lesson Plan' },
     { key: 'socratic', label: 'Socratic Script', count: lesson.socratic_scripts?.length || 0 },
     { key: 'quiz', label: 'Quiz', count: questions.length },
+    { key: 'analysis', label: 'Analysis' },
   ];
 
   const handleDownloadPDF = () => downloadLessonPDF(lesson, gate, questions);
@@ -347,7 +367,7 @@ export function LessonDetailPage() {
                 </div>
                 <div className="flex gap-2 flex-wrap">
                   <Link to={`/teacher/courses/${courseId}/lessons/${lessonId}/scores`} className="btn-primary text-[11px] py-1.5">📊 Enter Scores</Link>
-                  <button onClick={handleGenerateQuiz} disabled={generatingQuiz} className="btn-secondary text-[11px] py-1.5">
+                  <button onClick={() => handleGenerateQuiz(true)} disabled={generatingQuiz} className="btn-secondary text-[11px] py-1.5">
                     {generatingQuiz ? '🤖 Generating...' : '🔄 Regenerate Quiz'}
                   </button>
                   <button onClick={() => generateQuizSheetPDF(questions, {
@@ -372,7 +392,7 @@ export function LessonDetailPage() {
               {questions.map((q: any, qi: number) => (
                 <div key={q.id} className="card p-4">
                   <div className="flex items-start gap-3">
-                    <div className="w-7 h-7 rounded-full bg-les-navy text-white flex items-center justify-center text-[11px] font-black flex-shrink-0 mt-0.5">
+                    <div className="w-7 h-7 rounded-full bg-leap-navy text-white flex items-center justify-center text-[11px] font-black flex-shrink-0 mt-0.5">
                       {qi + 1}
                     </div>
                     <div className="flex-1">
@@ -430,6 +450,11 @@ export function LessonDetailPage() {
             </div>
           )}
         </div>
+      )}
+
+      {/* Analysis Tab */}
+      {tab === 'analysis' && (
+        <LessonAnalysis courseId={courseId!} lessonId={lessonId!} />
       )}
 
       {/* Bottom navigation */}

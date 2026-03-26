@@ -32,7 +32,7 @@ export function JourneySteps({ status, compact }: Props) {
           <div
             key={step.key}
             className={`w-2 h-2 rounded-full transition-all ${
-              i <= currentStep ? 'bg-les-navy' : 'bg-gray-200'
+              i <= currentStep ? 'bg-leap-navy' : 'bg-gray-200'
             }`}
             title={step.label}
           />
@@ -49,7 +49,7 @@ export function JourneySteps({ status, compact }: Props) {
             i < currentStep
               ? 'bg-green-100 text-green-700'
               : i === currentStep
-                ? 'bg-les-navy text-white'
+                ? 'bg-leap-navy text-white'
                 : 'bg-gray-100 text-gray-400'
           }`}>
             <span>{i < currentStep ? '✓' : step.icon}</span>

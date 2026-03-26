@@ -35,7 +35,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     success: 'bg-green-600',
     error: 'bg-red-600',
     warning: 'bg-amber-600',
-    info: 'bg-les-navy',
+    info: 'bg-leap-navy',
   };
 
   const icons: Record<ToastType, string> = {

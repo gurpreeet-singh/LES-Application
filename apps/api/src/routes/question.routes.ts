@@ -91,9 +91,20 @@ router.post('/generate/:lessonId', requireRole('teacher'), async (req: Request, 
   // Check if questions already exist for this lesson's gate
   const { data: existing } = await supabaseAdmin
     .from('questions')
-    .select('id')
+    .select('*')
     .eq('gate_id', lesson.gate_id)
     .eq('course_id', courseId);
+
+  // Return existing questions unless force regeneration requested
+  if (existing && existing.length > 0 && !req.body?.force) {
+    res.json({ questions: existing, generated: 0, existing: existing.length, message: 'Questions already exist for this gate. Use force:true to regenerate.' });
+    return;
+  }
+
+  // If regenerating, delete old questions first
+  if (existing && existing.length > 0 && req.body?.force) {
+    await supabaseAdmin.from('questions').delete().eq('gate_id', lesson.gate_id).eq('course_id', courseId);
+  }
 
   // Get past performance for context-aware generation
   const { data: progress } = await supabaseAdmin
@@ -139,7 +150,7 @@ ${avgMastery > 80 ? 'Students are performing well — increase difficulty, add m
     const gate = lesson.gate as any;
     const subConcepts = (gate?.sub_concepts || []).map((sc: any) => sc.title || sc);
 
-    const { buildQuizGenerationPrompt } = await import('@les/shared');
+    const { buildQuizGenerationPrompt } = await import('@leap/shared');
     const { system, user } = buildQuizGenerationPrompt([{
       lesson_number: lesson.lesson_number,
       title: lesson.title,
@@ -158,7 +169,19 @@ ${avgMastery > 80 ? 'Students are performing well — increase difficulty, add m
     });
 
     const jsonStr = rawResponse.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-    const parsed = JSON.parse(jsonStr);
+    let parsed: any;
+    try {
+      parsed = JSON.parse(jsonStr);
+    } catch {
+      // Try to extract JSON from the response
+      const jsonMatch = jsonStr.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        parsed = JSON.parse(jsonMatch[0]);
+      } else {
+        res.status(500).json({ error: 'AI returned invalid response. Please try again.' });
+        return;
+      }
+    }
     const questions = parsed.lessons?.[0]?.questions || parsed.questions || [];
 
     const inserts = questions.map((q: any) => ({

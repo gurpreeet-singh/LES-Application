@@ -1,6 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { LLMProvider } from './llm/provider.js';
-import { buildGradingPrompt } from '@les/shared';
+import { buildGradingPrompt } from '@leap/shared';
 
 interface StudentAnswer {
   question_id: string;

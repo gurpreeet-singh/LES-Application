@@ -2,6 +2,17 @@ export const MASTERY_THRESHOLD = 75;
 export const AT_RISK_THRESHOLD = 60;
 export const BLOOM_REACH_THRESHOLD = 50;
 
+// Minimum score (%) a student needs at each Bloom level to be considered "ready" to advance.
+// Descending: foundational levels require higher mastery, higher-order levels have lower bars.
+export const BLOOM_LEVEL_THRESHOLDS: Record<string, number> = {
+  remember: 80,
+  understand: 75,
+  apply: 65,
+  analyze: 55,
+  evaluate: 45,
+  create: 35,
+};
+
 export const BLOOM_LEVEL_WEIGHTS = {
   remember: 1,
   understand: 2,

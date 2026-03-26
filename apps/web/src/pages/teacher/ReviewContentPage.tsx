@@ -6,7 +6,7 @@ import { ConfirmModal } from '../../components/shared/ConfirmModal';
 import { GateDependencyGraph } from '../../components/shared/GateDependencyGraph';
 import { KGCircleNodes } from '../../components/shared/KGCircleNodes';
 import { SkeletonPage } from '../../components/shared/LoadingSkeleton';
-import type { Gate, Lesson, Question, Course } from '@les/shared';
+import type { Gate, Lesson, Question, Course } from '@leap/shared';
 
 type Tab = 'overview' | 'lessons';
 
@@ -95,8 +95,12 @@ export function ReviewContentPage() {
   };
 
   const handleFinalize = async () => {
-    await api.post(`/courses/${courseId}/finalize`);
-    navigate(`/teacher/courses/${courseId}/detail`);
+    try {
+      await api.post(`/courses/${courseId}/finalize`);
+      navigate(`/teacher/courses/${courseId}/detail`);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to finalize. Please try again.');
+    }
   };
 
   // Progress: count at lesson level (each lesson = 1 unit including its scripts + quiz)
@@ -145,9 +149,9 @@ export function ReviewContentPage() {
       {/* Progress bar */}
       <div className="flex items-center gap-3 mb-6">
         <div className="flex-1 bg-gray-200 rounded-full h-2.5 overflow-hidden">
-          <div className="bg-gradient-to-r from-les-blue to-les-navy h-full rounded-full transition-all duration-500 ease-out" style={{ width: `${progressPct}%` }} />
+          <div className="bg-gradient-to-r from-leap-blue to-leap-navy h-full rounded-full transition-all duration-500 ease-out" style={{ width: `${progressPct}%` }} />
         </div>
-        <span className="text-[12px] font-bold text-les-blue">{progressPct}%</span>
+        <span className="text-[12px] font-bold text-leap-blue">{progressPct}%</span>
       </div>
 
       {/* Tabs: Overview (KG + Dependencies) | Lessons (main review) */}
@@ -239,7 +243,7 @@ export function ReviewContentPage() {
                       {/* Lesson header */}
                       <div className="p-4 flex items-center justify-between">
                         <button onClick={() => setExpandedLesson(isExpanded ? null : l.id)} className="flex items-center gap-3 text-left flex-1">
-                          <div className="w-9 h-9 rounded-full bg-les-navy text-white flex items-center justify-center text-[12px] font-black flex-shrink-0">
+                          <div className="w-9 h-9 rounded-full bg-leap-navy text-white flex items-center justify-center text-[12px] font-black flex-shrink-0">
                             {l.lesson_number}
                           </div>
                           <div>
@@ -249,7 +253,7 @@ export function ReviewContentPage() {
                               {l.bloom_levels?.map(bl => <BloomBadge key={bl} level={bl} />)}
                               <span className="badge bg-gray-100 text-gray-500">{l.duration_minutes || 40} min</span>
                               <span className="badge bg-purple-100 text-purple-700">{l.socratic_scripts?.length || 0} Socratic stages</span>
-                              <span className="badge bg-les-navy/10 text-les-navy">{lessonQuestions.length} quiz Q</span>
+                              <span className="badge bg-leap-navy/10 text-leap-navy">{lessonQuestions.length} quiz Q</span>
                             </div>
                           </div>
                         </button>
@@ -273,7 +277,7 @@ export function ReviewContentPage() {
                           <div className="flex gap-1 px-4 pt-3">
                             {(['plan', 'socratic', 'quiz'] as const).map(t => (
                               <button key={t} onClick={() => setLessonTab(l.id, t)}
-                                className={`px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all ${subTab === t ? 'bg-les-navy text-white' : 'text-gray-500 hover:bg-gray-100'}`}>
+                                className={`px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all ${subTab === t ? 'bg-leap-navy text-white' : 'text-gray-500 hover:bg-gray-100'}`}>
                                 {t === 'plan' ? 'Lesson Plan' : t === 'socratic' ? `Socratic Script (${l.socratic_scripts?.length || 0})` : `Quiz (${lessonQuestions.length})`}
                               </button>
                             ))}
@@ -356,7 +360,7 @@ export function ReviewContentPage() {
                                   <div className="space-y-2">
                                     {lessonQuestions.map((q, qi) => (
                                       <div key={q.id} className="flex items-start gap-2 p-2 bg-gray-50 rounded-lg">
-                                        <div className="w-6 h-6 rounded-full bg-les-navy text-white flex items-center justify-center text-[9px] font-black flex-shrink-0 mt-0.5">
+                                        <div className="w-6 h-6 rounded-full bg-leap-navy text-white flex items-center justify-center text-[9px] font-black flex-shrink-0 mt-0.5">
                                           {qi + 1}
                                         </div>
                                         <div className="flex-1">

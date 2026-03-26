@@ -629,7 +629,7 @@ app.get('/api/v1/courses/:courseId/lessons/:lessonId/grades', (_req, res) => {
 
 app.listen(3001, () => {
   console.log('');
-  console.log('  LES Platform — Demo Mode');
+  console.log('  LEAP Platform — Demo Mode');
   console.log('  API:      http://localhost:3001');
   console.log('  Frontend: http://localhost:5180');
   console.log(`  ${ALL_COURSES.length} courses | ${MOCK_GATES.length} gates | ${MOCK_LESSONS.length} lessons | ${MOCK_QUESTIONS.length} questions`);

@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import type { UserRole } from '@les/shared';
+import type { UserRole } from '@leap/shared';
 
 export function requireRole(...roles: UserRole[]) {
   return (req: Request, res: Response, next: NextFunction) => {

@@ -16,8 +16,9 @@ export const env = {
 };
 
 const required = ['SUPABASE_URL', 'SUPABASE_ANON_KEY', 'SUPABASE_SERVICE_ROLE_KEY'] as const;
-for (const key of required) {
-  if (!env[key]) {
-    console.warn(`Warning: Missing required env var ${key}`);
-  }
+const missing = required.filter(key => !env[key]);
+if (missing.length > 0) {
+  console.error(`FATAL: Missing required environment variables: ${missing.join(', ')}`);
+  console.error('The server cannot start without these. Check your .env file.');
+  process.exit(1);
 }

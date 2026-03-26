@@ -41,26 +41,60 @@ export function StudentsPage() {
     setShowAdd(false);
   };
 
+  const [uploadError, setUploadError] = useState('');
+
   const handleCSVUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    setUploadError('');
 
     const reader = new FileReader();
     reader.onload = async (ev) => {
       const text = ev.target?.result as string;
       const lines = text.split('\n').filter(l => l.trim());
-      if (lines.length < 2) return;
+      if (lines.length < 2) {
+        setUploadError('CSV must have a header row and at least one student row.');
+        return;
+      }
 
-      const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
+      const headers = lines[0].split(',').map(h => h.trim().toLowerCase().replace(/['"]/g, ''));
+
+      // Flexible header matching — accept common variations
+      const nameCol = headers.findIndex(h => ['name', 'full_name', 'student name', 'student_name'].includes(h));
+      if (nameCol === -1) {
+        setUploadError('CSV must have a "name" or "full_name" column. Found headers: ' + headers.join(', '));
+        return;
+      }
+
+      const emailCol = headers.findIndex(h => ['email', 'email_address', 'student email'].includes(h));
+      const rollCol = headers.findIndex(h => ['roll_number', 'roll', 'roll no', 'roll_no'].includes(h));
+      const phoneCol = headers.findIndex(h => ['phone', 'mobile', 'phone_number'].includes(h));
+      const parentCol = headers.findIndex(h => ['parent_name', 'parent', 'guardian'].includes(h));
+
       const rows = lines.slice(1).map(line => {
-        const vals = line.split(',').map(v => v.trim());
-        const obj: Record<string, string> = {};
-        headers.forEach((h, i) => { obj[h] = vals[i] || ''; });
-        return obj;
-      });
+        const vals = line.split(',').map(v => v.trim().replace(/^["']|["']$/g, ''));
+        return {
+          name: vals[nameCol] || '',
+          full_name: vals[nameCol] || '',
+          email: emailCol >= 0 ? vals[emailCol] : '',
+          roll_number: rollCol >= 0 ? vals[rollCol] : '',
+          phone: phoneCol >= 0 ? vals[phoneCol] : '',
+          parent_name: parentCol >= 0 ? vals[parentCol] : '',
+        };
+      }).filter(r => r.name.trim());
 
-      const result = await api.post<{ students: Student[] }>(`/courses/${courseId}/students/upload`, { students: rows });
-      if (result.students) setStudents(prev => [...prev, ...result.students]);
+      if (rows.length === 0) {
+        setUploadError('No valid student rows found in CSV.');
+        return;
+      }
+
+      try {
+        const result = await api.post<{ students: Student[]; count: number }>(`/courses/${courseId}/students/upload`, { students: rows });
+        if (result.students) setStudents(prev => [...prev, ...result.students]);
+        setUploadError(`${result.count || result.students?.length || 0} students added successfully.`);
+      } catch (err) {
+        setUploadError(err instanceof Error ? err.message : 'Upload failed');
+      }
     };
     reader.readAsText(file);
   };
@@ -131,6 +165,10 @@ export function StudentsPage() {
         </div>
       )}
 
+      {uploadError && (
+        <div className={`text-sm p-3 rounded-xl mb-4 ${uploadError.includes('success') ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-700 border border-red-200'}`} role="alert">{uploadError}</div>
+      )}
+
       {/* Students table */}
       {students.length === 0 ? (
         <div className="card p-12 text-center">
@@ -161,7 +199,7 @@ export function StudentsPage() {
                   <td className="py-2.5 px-4 text-[12px] text-gray-400">{i + 1}</td>
                   <td className="py-2.5 px-4">
                     <div className="flex items-center gap-2">
-                      <div className="w-7 h-7 rounded-full bg-les-navy text-white flex items-center justify-center text-[10px] font-bold">{s.full_name.charAt(0)}</div>
+                      <div className="w-7 h-7 rounded-full bg-leap-navy text-white flex items-center justify-center text-[10px] font-bold">{s.full_name.charAt(0)}</div>
                       <span className="text-[12px] font-medium text-gray-900">{s.full_name}</span>
                     </div>
                   </td>

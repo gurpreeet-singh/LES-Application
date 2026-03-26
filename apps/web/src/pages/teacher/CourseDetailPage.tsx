@@ -6,7 +6,7 @@ import { KGCircleNodes } from '../../components/shared/KGCircleNodes';
 import { GateDependencyGraph } from '../../components/shared/GateDependencyGraph';
 import { JourneySteps } from '../../components/shared/JourneySteps';
 import { SkeletonPage } from '../../components/shared/LoadingSkeleton';
-import type { Course, Gate, Lesson, Question, SubConcept } from '@les/shared';
+import type { Course, Gate, Lesson, Question, SubConcept } from '@leap/shared';
 
 type Tab = 'overview' | 'kg' | 'lessons' | 'scripts' | 'questions' | 'timetable' | 'settings';
 
@@ -131,10 +131,10 @@ export function CourseDetailPage() {
             {/* Stats */}
             <div className="grid grid-cols-4 gap-3">
               {[
-                { val: gates.length, label: 'Gates', color: 'text-les-blue' },
-                { val: lessons.length, label: 'Lessons', color: 'text-les-green' },
-                { val: questions.length, label: 'Questions', color: 'text-les-purple' },
-                { val: lessons.filter(l => l.socratic_scripts?.length).length, label: 'Scripts', color: 'text-les-amber' },
+                { val: gates.length, label: 'Gates', color: 'text-leap-blue' },
+                { val: lessons.length, label: 'Lessons', color: 'text-leap-green' },
+                { val: questions.length, label: 'Questions', color: 'text-leap-purple' },
+                { val: lessons.filter(l => l.socratic_scripts?.length).length, label: 'Scripts', color: 'text-leap-amber' },
               ].map(s => (
                 <div key={s.label} className="card p-4 text-center">
                   <p className={`text-2xl font-black ${s.color}`}>{s.val}</p>
@@ -313,7 +313,7 @@ export function CourseDetailPage() {
                 <div className="flex items-center gap-3">
                   <span className="badge bg-gray-100 text-gray-500">{l.duration_minutes}min</span>
                   <span className="badge bg-purple-100 text-purple-700">{l.socratic_scripts?.length || 0} stages</span>
-                  <span className="badge bg-les-navy/10 text-les-navy">{questions.filter(q => (q as any).lesson_id === l.id || q.gate_id === l.gate_id).length > 10 ? 10 : questions.filter(q => (q as any).lesson_id === l.id).length || 10} quiz Q</span>
+                  <span className="badge bg-leap-navy/10 text-leap-navy">{questions.filter(q => (q as any).lesson_id === l.id || q.gate_id === l.gate_id).length > 10 ? 10 : questions.filter(q => (q as any).lesson_id === l.id).length || 10} quiz Q</span>
                   <Link
                     to={`/teacher/courses/${courseId}/lessons/${l.id}`}
                     className="btn-primary text-[10px] py-1 px-2.5"
@@ -452,7 +452,7 @@ export function CourseDetailPage() {
                   <div key={s.id} className="card p-4">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-full bg-les-navy text-white flex items-center justify-center text-sm font-black">
+                        <div className="w-10 h-10 rounded-full bg-leap-navy text-white flex items-center justify-center text-sm font-black">
                           {s.session_number}
                         </div>
                         <div>

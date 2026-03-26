@@ -1,6 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { LLMProvider } from './llm/provider.js';
-import { buildQuizGenerationPrompt } from '@les/shared';
+import { buildQuizGenerationPrompt } from '@leap/shared';
 
 export class QuizGenerationService {
   constructor(private llm: LLMProvider, private db: SupabaseClient) {}

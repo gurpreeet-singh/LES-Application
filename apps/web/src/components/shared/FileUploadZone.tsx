@@ -42,7 +42,7 @@ export function FileUploadZone({ onFileSelected, accept = '.pdf,.docx,.doc,.txt,
   return (
     <div
       className={`border-2 border-dashed rounded-2xl p-8 text-center transition-all cursor-pointer ${
-        dragOver ? 'border-les-blue bg-blue-50' : fileName ? 'border-green-300 bg-green-50/30' : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
+        dragOver ? 'border-leap-blue bg-blue-50' : fileName ? 'border-green-300 bg-green-50/30' : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
       }`}
       onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
       onDragLeave={() => setDragOver(false)}

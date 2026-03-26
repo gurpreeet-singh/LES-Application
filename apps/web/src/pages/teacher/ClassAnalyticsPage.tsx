@@ -1,13 +1,15 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { api } from '../../lib/api';
+import { useAuth } from '../../context/AuthContext';
 import { BloomBarSVG } from '../../components/shared/BloomBarSVG';
 import { BloomRadar } from '../../components/shared/BloomRadar';
 import { VelocitySVG } from '../../components/shared/VelocitySVG';
 import { KGCircleNodes } from '../../components/shared/KGCircleNodes';
 import { getMasteryColor } from '../../lib/utils';
 import { SkeletonPage } from '../../components/shared/LoadingSkeleton';
-import type { HeatmapData, BloomDistribution, DependencyRisk, AISuggestion, Course } from '@les/shared';
+import { ClassTrajectory } from '../../components/teacher/ClassTrajectory';
+import type { HeatmapData, BloomDistribution, DependencyRisk, AISuggestion, Course } from '@leap/shared';
 
 type AnalyticsTab = 'overview' | 'sessions' | 'students' | 'ai_guide';
 
@@ -76,8 +78,17 @@ interface SessionAnalytics {
   };
 }
 
+interface CrossCourseContext {
+  courses: { id: string; title: string; subject: string; class_level?: string }[];
+  gates: { id: string; course_id: string; gate_number: number; short_title: string; avg_mastery: number }[];
+  cross_edges: { gate_id: string; prerequisite_gate_id: string }[];
+  bottlenecks: { from_gate: string; from_course: string; to_gate: string; to_course: string; blocked_students: number; total_students: number }[];
+  students: { id: string; name: string; overall_mastery: number; at_risk: boolean; courses: { course_id: string; course_title: string; avg_mastery: number }[] }[];
+}
+
 export function ClassAnalyticsPage() {
   const { courseId } = useParams<{ courseId: string }>();
+  const { profile } = useAuth();
   const [tab, setTab] = useState<AnalyticsTab>('overview');
   const [course, setCourse] = useState<Course | null>(null);
   const [sessionAnalytics, setSessionAnalytics] = useState<SessionAnalytics | null>(null);
@@ -92,6 +103,9 @@ export function ClassAnalyticsPage() {
   const [showHistory, setShowHistory] = useState(false);
   const [expandedSession, setExpandedSession] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
+  const [crossCourse, setCrossCourse] = useState<CrossCourseContext | null>(null);
+
+  const isCollege = profile?.school === 'Horizon University College' || profile?.email?.includes('college') || profile?.email?.includes('university');
 
   useEffect(() => {
     Promise.all([
@@ -112,6 +126,11 @@ export function ClassAnalyticsPage() {
       setAdaptiveData(ad);
       if (h.gates.length > 0) setSelGate(h.gates[0].id);
       setLoading(false);
+
+      // Fetch cross-course context for college teachers
+      if (isCollege) {
+        api.get<CrossCourseContext>('/programs/prog-default/kg').then(setCrossCourse).catch(() => {});
+      }
     });
   }, [courseId]);
 
@@ -155,7 +174,16 @@ export function ClassAnalyticsPage() {
   const pendingSuggestions = adaptiveData?.suggestions.filter(s => s.status === 'pending').length || 0;
   const acceptedSuggestions = adaptiveData?.suggestions.filter(s => s.status === 'accepted').length || 0;
 
-  const analyticsTabs = [
+  // Cross-course data for this course
+  const thisCourseCrossEdges = crossCourse ? crossCourse.cross_edges.filter(e => {
+    const gateIds = new Set(crossCourse.gates.filter(g => g.course_id === courseId).map(g => g.id));
+    return gateIds.has(e.gate_id) || gateIds.has(e.prerequisite_gate_id);
+  }) : [];
+  const thisCourseBottlenecks = crossCourse?.bottlenecks.filter(b =>
+    b.to_course === course?.title || b.from_course === course?.title
+  ) || [];
+
+  const analyticsTabs: { key: AnalyticsTab; label: string }[] = [
     { key: 'overview' as const, label: 'Course Overview' },
     { key: 'sessions' as const, label: `Sessions (${sa.completed_sessions}/${sa.total_sessions})` },
     { key: 'students' as const, label: `Students (${heatmap.students.length})` },
@@ -174,6 +202,85 @@ export function ClassAnalyticsPage() {
         </div>
       </div>
 
+      {/* Cross-Course Context Banner (college only) */}
+      {isCollege && crossCourse && thisCourseCrossEdges.length > 0 && (
+        <div className="card p-4 mb-4 border-l-4 border-l-purple-500 bg-purple-50/20">
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <h3 className="text-[12px] font-black text-purple-900">Cross-Course Dependencies</h3>
+              <p className="text-[10px] text-purple-600">This course has {thisCourseCrossEdges.length} connections to other courses</p>
+            </div>
+            <Link to="/teacher/programs/prog-default" className="text-[10px] font-bold text-purple-700 hover:underline">View Full Program Graph →</Link>
+          </div>
+
+          {/* Prerequisites this course needs */}
+          {(() => {
+            const thisGateIds = new Set(crossCourse.gates.filter(g => g.course_id === courseId).map(g => g.id));
+            const incomingEdges = crossCourse.cross_edges.filter(e => thisGateIds.has(e.gate_id));
+            const outgoingEdges = crossCourse.cross_edges.filter(e => thisGateIds.has(e.prerequisite_gate_id));
+            const gateMap = new Map(crossCourse.gates.map(g => [g.id, g]));
+            const courseMap = new Map(crossCourse.courses.map(c => [c.id, c]));
+
+            return (
+              <div className="space-y-2">
+                {incomingEdges.length > 0 && (
+                  <div>
+                    <p className="text-[9px] font-bold text-purple-700 uppercase tracking-wider mb-1">Requires from other courses</p>
+                    <div className="space-y-1">
+                      {incomingEdges.map((e, i) => {
+                        const prereqGate = gateMap.get(e.prerequisite_gate_id);
+                        const targetGate = gateMap.get(e.gate_id);
+                        const prereqCourse = prereqGate ? courseMap.get(prereqGate.course_id) : null;
+                        return (
+                          <div key={i} className="flex items-center gap-2 text-[11px] bg-white rounded-lg px-3 py-1.5 border border-purple-100">
+                            <span className="font-bold" style={{ color: prereqGate?.avg_mastery && prereqGate.avg_mastery >= 70 ? '#059669' : prereqGate?.avg_mastery && prereqGate.avg_mastery >= 50 ? '#D97706' : '#DC2626' }}>
+                              {prereqGate?.avg_mastery || 0}%
+                            </span>
+                            <span className="text-gray-600">G{prereqGate?.gate_number}: {prereqGate?.short_title}</span>
+                            <span className="text-[9px] text-gray-400">({prereqCourse?.title})</span>
+                            <span className="text-purple-400">→</span>
+                            <span className="text-gray-800 font-medium">G{targetGate?.gate_number}: {targetGate?.short_title}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+                {outgoingEdges.length > 0 && (
+                  <div>
+                    <p className="text-[9px] font-bold text-blue-700 uppercase tracking-wider mb-1">Feeds into other courses</p>
+                    <div className="flex gap-1.5 flex-wrap">
+                      {outgoingEdges.map((e, i) => {
+                        const targetGate = gateMap.get(e.gate_id);
+                        const targetCourse = targetGate ? courseMap.get(targetGate.course_id) : null;
+                        const srcGate = gateMap.get(e.prerequisite_gate_id);
+                        return (
+                          <span key={i} className="text-[10px] bg-blue-50 text-blue-700 px-2.5 py-1 rounded-lg border border-blue-100">
+                            G{srcGate?.gate_number} → {targetCourse?.title} G{targetGate?.gate_number}
+                          </span>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+                {/* Bottleneck alerts */}
+                {thisCourseBottlenecks.length > 0 && (
+                  <div className="mt-2">
+                    <p className="text-[9px] font-bold text-red-700 uppercase tracking-wider mb-1">Bottleneck Alerts</p>
+                    {thisCourseBottlenecks.map((b, i) => (
+                      <div key={i} className="flex items-center gap-2 text-[11px] bg-red-50 rounded-lg px-3 py-1.5 border border-red-100 mb-1">
+                        <span className="text-red-600 font-bold">{b.blocked_students} blocked</span>
+                        <span className="text-gray-600">{b.from_gate} ({b.from_course}) → {b.to_gate} ({b.to_course})</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+        </div>
+      )}
+
       {/* Analytics Tabs */}
       <div className="flex gap-1 mb-6">
         {analyticsTabs.map(t => (
@@ -190,33 +297,33 @@ export function ClassAnalyticsPage() {
           <div className="card p-5">
             <div className="flex items-center justify-between mb-2">
               <h3 className="section-header">Course Progress</h3>
-              <span className="text-lg font-black text-les-navy">{stats.overall_completion_pct}%</span>
+              <span className="text-lg font-black text-leap-navy">{stats.overall_completion_pct}%</span>
             </div>
             <div className="bg-gray-200 rounded-full h-3 overflow-hidden">
-              <div className="bg-gradient-to-r from-les-blue to-les-navy h-full rounded-full transition-all duration-500" style={{ width: `${stats.overall_completion_pct}%` }} />
+              <div className="bg-gradient-to-r from-leap-blue to-leap-navy h-full rounded-full transition-all duration-500" style={{ width: `${stats.overall_completion_pct}%` }} />
             </div>
             <p className="text-[11px] text-gray-500 mt-2">Session {sa.current_session} of {sa.total_sessions} | {sa.completed_sessions} completed</p>
           </div>
 
           {/* Summary Stats with explanations */}
-          <div className="grid grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <div className="card p-4">
-              <p className="text-2xl font-black text-les-navy">{stats.avg_mastery}%</p>
+              <p className="text-2xl font-black text-leap-navy">{stats.avg_mastery}%</p>
               <p className="text-[11px] font-bold text-gray-700">Avg Mastery</p>
               <p className="text-[10px] text-gray-400 mt-1">Average quiz score across all completed sessions and students</p>
             </div>
             <div className="card p-4">
-              <p className="text-2xl font-black text-les-green">{stats.total_quizzes_completed}<span className="text-sm text-gray-400 font-normal">/{stats.total_quizzes_possible}</span></p>
+              <p className="text-2xl font-black text-leap-green">{stats.total_quizzes_completed}<span className="text-sm text-gray-400 font-normal">/{stats.total_quizzes_possible}</span></p>
               <p className="text-[11px] font-bold text-gray-700">Quizzes Completed</p>
               <p className="text-[10px] text-gray-400 mt-1">Total quiz attempts by all students across completed sessions</p>
             </div>
             <div className="card p-4">
-              <p className="text-2xl font-black text-les-blue">{stats.students_on_track}</p>
+              <p className="text-2xl font-black text-leap-blue">{stats.students_on_track}</p>
               <p className="text-[11px] font-bold text-gray-700">Students On Track</p>
               <p className="text-[10px] text-gray-400 mt-1">Students scoring above 75% mastery threshold consistently</p>
             </div>
             <div className="card p-4">
-              <p className="text-2xl font-black text-les-red">{stats.students_at_risk}</p>
+              <p className="text-2xl font-black text-leap-red">{stats.students_at_risk}</p>
               <p className="text-[11px] font-bold text-gray-700">At Risk</p>
               <p className="text-[10px] text-gray-400 mt-1">Students below 60% in any active gate — need immediate attention</p>
             </div>
@@ -225,7 +332,7 @@ export function ClassAnalyticsPage() {
           {/* Gate Status Cards */}
           <div>
             <h3 className="section-header mb-3 flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-les-blue inline-block" />
+              <span className="w-2 h-2 rounded-full bg-leap-blue inline-block" />
               Gate Progress
             </h3>
             <div className="grid grid-cols-3 gap-3">
@@ -259,7 +366,7 @@ export function ClassAnalyticsPage() {
           {/* Mastery Heatmap */}
           <div className="card p-4">
             <h3 className="section-header mb-3 flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-les-purple inline-block" />
+              <span className="w-2 h-2 rounded-full bg-leap-purple inline-block" />
               Student x Gate Mastery
             </h3>
             <div className="overflow-x-auto">
@@ -308,16 +415,16 @@ export function ClassAnalyticsPage() {
       {tab === 'sessions' && (
         <div className="fade-in space-y-2">
           {/* Current session indicator */}
-          <div className="card p-4 bg-les-navy/5 border-les-navy/20 mb-4">
+          <div className="card p-4 bg-leap-navy/5 border-leap-navy/20 mb-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <span className="badge bg-les-navy text-white text-[11px] px-3 py-1">NOW</span>
+                <span className="badge bg-leap-navy text-white text-[11px] px-3 py-1">NOW</span>
                 <div>
                   <p className="text-sm font-bold text-gray-900">Session {sa.current_session}: {sa.sessions.find(s => s.session_number === sa.current_session)?.lesson_title}</p>
                   <p className="text-[11px] text-gray-500">Currently in progress</p>
                 </div>
               </div>
-              <span className="text-les-navy font-black text-lg">{sa.current_session}/{sa.total_sessions}</span>
+              <span className="text-leap-navy font-black text-lg">{sa.current_session}/{sa.total_sessions}</span>
             </div>
           </div>
 
@@ -327,7 +434,7 @@ export function ClassAnalyticsPage() {
             const isCurrent = session.session_number === sa.current_session;
 
             return (
-              <div key={session.session_number} className={`card overflow-hidden transition-all ${isCurrent ? 'ring-2 ring-les-navy/30' : ''}`}>
+              <div key={session.session_number} className={`card overflow-hidden transition-all ${isCurrent ? 'ring-2 ring-leap-navy/30' : ''}`}>
                 <button
                   onClick={() => setExpandedSession(isExpanded ? null : session.session_number)}
                   className="w-full text-left p-3 flex items-center justify-between hover:bg-gray-50 transition"
@@ -401,9 +508,13 @@ export function ClassAnalyticsPage() {
       {/* ===================== TAB 3: STUDENT PERFORMANCE ===================== */}
       {tab === 'students' && (
         <div className="fade-in">
-          <div className="grid grid-cols-3 gap-5">
+          {/* Class Trajectory + Student Deep Dive */}
+          <ClassTrajectory courseId={courseId!} />
+
+          <div className="mt-5" />
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
             {/* Left: Heatmap + Bloom */}
-            <div className="col-span-2 space-y-5">
+            <div className="lg:col-span-2 space-y-5">
               {/* Gate selector */}
               <div className="card p-4">
                 <h3 className="section-header mb-3">Select Gate for Bloom Analysis</h3>
@@ -524,7 +635,7 @@ export function ClassAnalyticsPage() {
               {/* Dependency Risks */}
               <div className="card p-4">
                 <h3 className="section-header mb-3 flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-les-red inline-block" />
+                  <span className="w-2 h-2 rounded-full bg-leap-red inline-block" />
                   Dependency Risks
                 </h3>
                 {risks.length === 0 ? <p className="text-[11px] text-gray-400">No risks detected</p> : (
@@ -542,7 +653,7 @@ export function ClassAnalyticsPage() {
               {/* AI Suggestions — same data source as AI Guide tab */}
               <div className="card p-4">
                 <h3 className="section-header mb-3 flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-les-blue pulse-dot inline-block" />
+                  <span className="w-2 h-2 rounded-full bg-leap-blue pulse-dot inline-block" />
                   AI Suggestions
                   <button onClick={() => setTab('ai_guide')} className="text-[10px] text-blue-600 hover:underline ml-auto font-normal normal-case tracking-normal">View all in AI Guide →</button>
                 </h3>
@@ -576,7 +687,7 @@ export function ClassAnalyticsPage() {
               {/* Immediate Attention */}
               <div className="card p-4">
                 <h3 className="section-header mb-3 flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-les-red inline-block" />
+                  <span className="w-2 h-2 rounded-full bg-leap-red inline-block" />
                   Immediate Attention
                 </h3>
                 {attention.length === 0 ? <p className="text-[11px] text-gray-400">No students at risk</p> : (
@@ -602,9 +713,9 @@ export function ClassAnalyticsPage() {
       {tab === 'ai_guide' && adaptiveData && (
         <div className="fade-in space-y-4">
           {/* Header Banner */}
-          <div className="card p-5 bg-gradient-to-r from-les-navy/5 to-les-purple/5 border-les-navy/20">
+          <div className="card p-5 bg-gradient-to-r from-leap-navy/5 to-leap-purple/5 border-leap-navy/20">
             <div className="flex items-center gap-3 mb-2">
-              <div className="w-10 h-10 rounded-xl bg-les-navy flex items-center justify-center text-lg">🤖</div>
+              <div className="w-10 h-10 rounded-xl bg-leap-navy flex items-center justify-center text-lg">🤖</div>
               <div>
                 <h3 className="text-sm font-black text-gray-900">AI Course Guide — Adaptive Suggestions</h3>
                 <p className="text-[11px] text-gray-500">Based on {adaptiveData.analysis_based_on} | Generated {new Date(adaptiveData.generated_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</p>

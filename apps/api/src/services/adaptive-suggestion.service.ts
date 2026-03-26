@@ -1,7 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { LLMProvider } from './llm/provider.js';
-import { buildSuggestionPrompt } from '@les/shared';
-import { AT_RISK_THRESHOLD, BLOOM_REACH_THRESHOLD } from '@les/shared';
+import { buildSuggestionPrompt } from '@leap/shared';
+import { AT_RISK_THRESHOLD, BLOOM_REACH_THRESHOLD } from '@leap/shared';
 
 export class AdaptiveSuggestionService {
   constructor(private llm: LLMProvider, private db: SupabaseClient) {}

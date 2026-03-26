@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { supabaseAdmin } from '../config/supabase.js';
-import type { Profile } from '@les/shared';
+import type { Profile } from '@leap/shared';
 
 declare global {
   namespace Express {
@@ -26,15 +26,28 @@ export async function authenticate(req: Request, res: Response, next: NextFuncti
     return;
   }
 
-  const { data: profile } = await supabaseAdmin
+  let { data: profile } = await supabaseAdmin
     .from('profiles')
     .select('*')
     .eq('id', user.id)
     .single();
 
+  // Auto-create profile from auth metadata if missing
   if (!profile) {
-    res.status(401).json({ error: 'User profile not found' });
-    return;
+    const meta = user.user_metadata || {};
+    const { data: created, error: insertErr } = await supabaseAdmin.from('profiles').insert({
+      id: user.id,
+      email: user.email!,
+      full_name: meta.full_name || user.email!.split('@')[0],
+      role: meta.role || 'student',
+    }).select().single();
+
+    if (insertErr || !created) {
+      console.error('Profile auto-create failed:', insertErr?.message, 'userId:', user.id);
+      res.status(401).json({ error: 'User profile not found' });
+      return;
+    }
+    profile = created;
   }
 
   req.user = profile as Profile;
