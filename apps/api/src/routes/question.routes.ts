@@ -3,6 +3,7 @@ import { supabaseAdmin } from '../config/supabase.js';
 import { requireRole } from '../middleware/role.js';
 import { createLLMProvider } from '../services/llm/provider.js';
 import { QuizGenerationService } from '../services/quiz-generation.service.js';
+import { llmLimit } from '../middleware/rate-limit.js';
 
 const router = Router({ mergeParams: true });
 
@@ -72,7 +73,7 @@ router.put('/:id/status', requireRole('teacher'), async (req: Request, res: Resp
 });
 
 // POST /courses/:courseId/questions/generate/:lessonId — Generate quiz for a single lesson
-router.post('/generate/:lessonId', requireRole('teacher'), async (req: Request, res: Response) => {
+router.post('/generate/:lessonId', requireRole('teacher'), llmLimit, async (req: Request, res: Response) => {
   const courseId = req.params.courseId;
   const lessonId = req.params.lessonId;
 
