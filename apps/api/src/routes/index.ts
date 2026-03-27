@@ -11,6 +11,7 @@ import studentRoutes from './student.routes.js';
 import adminRoutes from './admin.routes.js';
 import programRoutes from './program.routes.js';
 import presentationRoutes from './presentation.routes.js';
+import teacherScheduleRoutes from './teacher-schedule.routes.js';
 import { authenticate } from '../middleware/auth.js';
 import { llmLimit } from '../middleware/rate-limit.js';
 
@@ -19,6 +20,7 @@ const router = Router();
 router.use('/auth', authRoutes);
 router.use('/admin', authenticate, adminRoutes);
 router.use('/programs', authenticate, programRoutes);
+router.use('/teacher', authenticate, teacherScheduleRoutes);
 router.use('/courses', authenticate, llmLimit, courseRoutes);
 router.use('/courses/:courseId/kg', authenticate, kgRoutes);
 router.use('/courses/:courseId/lessons', authenticate, lessonRoutes);
