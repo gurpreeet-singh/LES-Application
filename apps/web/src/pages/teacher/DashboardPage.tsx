@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { api } from '../../lib/api';
 import { useAuth } from '../../context/AuthContext';
 import { JourneySteps } from '../../components/shared/JourneySteps';
+import { MyDayPanel } from '../../components/teacher/MyDayPanel';
 import type { Course } from '@leap/shared';
 
 interface SessionAnalytics {
@@ -73,6 +74,9 @@ export function TeacherDashboardPage() {
         </div>
         <Link to="/teacher/courses" className="btn-primary">Manage Courses</Link>
       </div>
+
+      {/* My Day Schedule */}
+      <MyDayPanel />
 
       {/* Program Banner — shown for college teachers with 3+ active courses */}
       {activeCourses.length >= 3 && (
