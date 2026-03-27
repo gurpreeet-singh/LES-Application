@@ -50,9 +50,8 @@ export function ProgramViewPage() {
 
   // Instructor mapping for college courses
   const INSTRUCTORS: Record<string, string> = {
-    'Computer Science': 'Prof. Rajesh Kumar',
-    'Mathematics': 'Prof. Sunita Iyer',
-    'Machine Learning': 'Prof. Amit Pandey',
+    'Marketing': 'Prof. Abhay',
+    'Innovation & Entrepreneurship': 'Prof. Shashank',
   };
 
   // Get connected gates for hover highlighting

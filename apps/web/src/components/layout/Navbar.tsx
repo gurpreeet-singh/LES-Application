@@ -16,7 +16,7 @@ export function Navbar() {
   const isActive = (path: string) => location.pathname === path || location.pathname.startsWith(path + '/');
 
   // Detect institution from profile school field
-  const isCollege = profile?.school === 'Horizon University College' || profile?.email?.includes('college') || profile?.email?.includes('university');
+  const isCollege = profile?.school === 'Horizon University College' || profile?.email?.includes('college') || profile?.email?.includes('university') || profile?.email?.includes('hu.ac.ae');
 
   const teacherLinks = [
     { to: '/teacher', label: 'Dashboard', exact: true },

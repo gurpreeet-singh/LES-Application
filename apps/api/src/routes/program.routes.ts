@@ -16,14 +16,14 @@ router.get('/', async (req: Request, res: Response) => {
       .eq('teacher_id', teacherId)
       .eq('status', 'active');
 
-    // Group courses into "programs" — for college teachers with 3+ courses, treat as a program
+    // Always show program if teacher has active courses with cross-links
     const activeCourses = courses || [];
-    if (activeCourses.length >= 2) {
+    if (activeCourses.length >= 1) {
       res.json({
         programs: [{
           id: `prog-${teacherId}`,
-          title: 'Computer Science Program',
-          description: 'Cross-course AI/ML learning pathway',
+          title: 'HUC Academic Program',
+          description: 'Cross-course learning pathway — Horizon University College',
           courses: activeCourses,
         }],
       });
@@ -40,11 +40,42 @@ router.get('/:programId/kg', async (req: Request, res: Response) => {
   try {
     const teacherId = req.user!.id;
 
-    // Get all active courses for this teacher
-    const { data: courses } = await supabaseAdmin
+    // Get this teacher's active courses
+    const { data: myCourses } = await supabaseAdmin
       .from('courses')
       .select('id, title, subject, class_level, section, status')
       .eq('teacher_id', teacherId)
+      .eq('status', 'active');
+
+    if (!myCourses || myCourses.length === 0) {
+      res.json({ courses: [], gates: [], edges: [], cross_edges: [] });
+      return;
+    }
+
+    // Get gates for my courses to find cross-course links
+    const myCourseIds = myCourses.map(c => c.id);
+    const { data: myGates } = await supabaseAdmin.from('gates').select('id, course_id').in('course_id', myCourseIds);
+    const myGateIds = (myGates || []).map(g => g.id);
+
+    // Find cross-course edges where my gates are involved (either direction)
+    const { data: crossEdgesOut } = await supabaseAdmin.from('gate_prerequisites').select('gate_id, prerequisite_gate_id').in('gate_id', myGateIds.length > 0 ? myGateIds : ['none']);
+    const { data: crossEdgesIn } = await supabaseAdmin.from('gate_prerequisites').select('gate_id, prerequisite_gate_id').in('prerequisite_gate_id', myGateIds.length > 0 ? myGateIds : ['none']);
+    const allEdgeGateIds = new Set([
+      ...(crossEdgesOut || []).map(e => e.prerequisite_gate_id),
+      ...(crossEdgesIn || []).map(e => e.gate_id),
+      ...myGateIds,
+    ]);
+
+    // Find linked courses (courses that share cross-course edges with mine)
+    const { data: linkedGates } = await supabaseAdmin.from('gates').select('id, course_id').in('id', [...allEdgeGateIds]);
+    const linkedCourseIds = [...new Set((linkedGates || []).map(g => g.course_id))];
+    const allCourseIds = [...new Set([...myCourseIds, ...linkedCourseIds])];
+
+    // Fetch all linked courses
+    const { data: courses } = await supabaseAdmin
+      .from('courses')
+      .select('id, title, subject, class_level, section, status')
+      .in('id', allCourseIds)
       .eq('status', 'active')
       .order('class_level');
 
@@ -166,6 +197,18 @@ router.get('/:programId/kg', async (req: Request, res: Response) => {
   } catch (err: any) {
     console.error('Program KG error:', err.message);
     res.status(500).json({ error: 'Failed to fetch program knowledge graph' });
+  }
+});
+
+// POST /programs/seed-huc — manually trigger HUC demo seeding for the current teacher
+router.post('/seed-huc', async (req: Request, res: Response) => {
+  try {
+    const { seedHUCDemoCourses } = await import('../services/huc-demo-seeder.service.js');
+    const result = await seedHUCDemoCourses(supabaseAdmin, req.user!.id);
+    res.json({ success: true, courseIds: result.courseIds });
+  } catch (err: any) {
+    console.error('HUC seed error:', err.message);
+    res.status(500).json({ error: err.message });
   }
 });
 

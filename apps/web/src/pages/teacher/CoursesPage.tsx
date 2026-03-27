@@ -18,15 +18,14 @@ export function CoursesPage() {
   const [crossEdges, setCrossEdges] = useState<{ from_course: string; to_course: string; from_gate: string; to_gate: string }[]>([]);
   const navigate = useNavigate();
 
-  const isCollege = profile?.school === 'Horizon University College' || profile?.email?.includes('college') || profile?.email?.includes('university');
+  const isCollege = profile?.school === 'Horizon University College' || profile?.email?.includes('college') || profile?.email?.includes('university') || profile?.email?.includes('hu.ac.ae');
 
   // College instructor mapping — each course has a different professor
   const getInstructor = (c: Course) => {
     if (!isCollege) return null;
     const map: Record<string, { name: string; color: string }> = {
-      'Computer Science': { name: 'Prof. Rajesh Kumar', color: '#2E75B6' },
-      'Mathematics': { name: 'Prof. Sunita Iyer', color: '#1E7E34' },
-      'Machine Learning': { name: 'Prof. Amit Pandey', color: '#7C3AED' },
+      'Marketing': { name: 'Prof. Abhay', color: '#2E75B6' },
+      'Innovation & Entrepreneurship': { name: 'Prof. Shashank', color: '#7C3AED' },
     };
     return map[c.subject] || { name: profile?.full_name || 'Professor', color: '#6B7280' };
   };

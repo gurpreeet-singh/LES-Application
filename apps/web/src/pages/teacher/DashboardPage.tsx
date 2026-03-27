@@ -44,6 +44,7 @@ export function TeacherDashboardPage() {
   const activeCourses = courses.filter(c => c.status === 'active');
   const reviewCourses = courses.filter(c => c.status === 'review');
   const draftCourses = courses.filter(c => c.status === 'draft' || c.status === 'processing');
+  const isCollege = profile?.school === 'Horizon University College' || profile?.email?.includes('hu.ac.ae') || profile?.email?.includes('college') || profile?.email?.includes('university') || profile?.email?.includes('hu.ac.ae');
 
   // Calculate real totals
   const totalStudents = Object.values(sessionData).reduce((max, sa) => {
@@ -79,7 +80,7 @@ export function TeacherDashboardPage() {
       <MyDayPanel />
 
       {/* Program Banner — shown for college teachers with 3+ active courses */}
-      {activeCourses.length >= 3 && (
+      {activeCourses.length >= 1 && isCollege && (
         <div className="card p-5 mb-6 border-l-4 border-l-purple-500 bg-gradient-to-r from-purple-50/50 to-white">
           <div className="flex items-center justify-between">
             <div>

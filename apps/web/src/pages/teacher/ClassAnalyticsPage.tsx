@@ -105,7 +105,7 @@ export function ClassAnalyticsPage() {
   const [loading, setLoading] = useState(true);
   const [crossCourse, setCrossCourse] = useState<CrossCourseContext | null>(null);
 
-  const isCollege = profile?.school === 'Horizon University College' || profile?.email?.includes('college') || profile?.email?.includes('university');
+  const isCollege = profile?.school === 'Horizon University College' || profile?.email?.includes('college') || profile?.email?.includes('university') || profile?.email?.includes('hu.ac.ae');
 
   useEffect(() => {
     // Fetch each independently so one failure doesn't block the rest
