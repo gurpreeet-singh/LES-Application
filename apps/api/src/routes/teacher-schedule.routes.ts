@@ -98,7 +98,8 @@ router.get('/my-schedule/today', async (req: Request, res: Response) => {
     // Detect substitute assignments: find absent teachers and check if I'm suggested
     const dateSeed = simpleHash(today.toISOString().split('T')[0]);
     const allTeacherIds = (allTeachers || []).filter(t => t.id !== teacherId).map(t => t.id);
-    const absentCount = Math.min(2 + (dateSeed % 2), Math.floor(allTeacherIds.length / 5));
+    // Ensure at least 1 absent if there are other teachers, scale up for larger schools
+    const absentCount = allTeacherIds.length === 0 ? 0 : Math.min(1 + (dateSeed % 2), Math.max(1, Math.floor(allTeacherIds.length / 3)));
     const absentTeacherIds = new Set<string>();
     for (let i = 0; i < absentCount; i++) {
       const idx = (dateSeed + i * 7) % allTeacherIds.length;
