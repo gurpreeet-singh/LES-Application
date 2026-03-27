@@ -16,6 +16,7 @@ export function CoursesPage() {
   const [form, setForm] = useState({ title: '', subject: '', class_level: '', section: '', academic_year: '2026-27' });
   const [deleting, setDeleting] = useState<string | null>(null);
   const [crossEdges, setCrossEdges] = useState<{ from_course: string; to_course: string; from_gate: string; to_gate: string }[]>([]);
+  const [linkedCourses, setLinkedCourses] = useState<Course[]>([]);
   const navigate = useNavigate();
 
   const isCollege = profile?.school === 'Horizon University College' || profile?.email?.includes('college') || profile?.email?.includes('university') || profile?.email?.includes('hu.ac.ae');
@@ -35,10 +36,13 @@ export function CoursesPage() {
       setCourses(d.courses);
       setLoading(false);
 
-      // For college teachers, fetch cross-course edges
-      const activeCourses = d.courses.filter(c => c.status === 'active');
-      if (activeCourses.length >= 2) {
+      // For college teachers, always fetch cross-course edges (even with 1 course — linked courses from other teachers)
+      if (isCollege) {
         api.get<ProgramKG>(`/programs/prog-default/kg`).then(pkg => {
+          // Add linked courses that this teacher doesn't own
+          const myCourseIds = new Set(d.courses.map(c => c.id));
+          const linked = (pkg.courses || []).filter((c: any) => !myCourseIds.has(c.id)).map((c: any) => ({ ...c, _linked: true }));
+          setLinkedCourses(linked as any);
           const gateMap = new Map(pkg.gates.map(g => [g.id, g]));
           const courseMap = new Map(pkg.courses.map((c: any) => [c.id, c]));
           const edges = pkg.cross_edges.map(e => {
@@ -73,10 +77,11 @@ export function CoursesPage() {
 
   // Determine dependency structure for visual layout
   const activeCourses = courses.filter(c => c.status === 'active');
+  // Merge own + linked courses for the dependency view
+  const allProgramCourses = [...activeCourses, ...linkedCourses.filter(lc => lc.status === 'active')];
   const getCourseDepCount = (courseTitle: string) => crossEdges.filter(e => e.to_course === courseTitle).length;
-  // Courses with 0 incoming deps are "foundation" (top row), rest are "dependent" (bottom row)
-  const foundationCourses = activeCourses.filter(c => getCourseDepCount(c.title) === 0);
-  const dependentCourses = activeCourses.filter(c => getCourseDepCount(c.title) > 0);
+  const foundationCourses = allProgramCourses.filter(c => getCourseDepCount(c.title) === 0);
+  const dependentCourses = allProgramCourses.filter(c => getCourseDepCount(c.title) > 0);
   const otherCourses = courses.filter(c => c.status !== 'active');
 
   if (loading) {
@@ -88,16 +93,20 @@ export function CoursesPage() {
     );
   }
 
-  const CourseCard = ({ c }: { c: Course }) => {
+  const CourseCard = ({ c, linked }: { c: Course; linked?: boolean }) => {
     const cfg = statusConfig[c.status] || statusConfig.draft;
     const instructor = getInstructor(c);
-    // Find cross-course dependencies involving this course
     const incomingDeps = crossEdges.filter(e => e.to_course === c.title);
     const outgoingDeps = crossEdges.filter(e => e.from_course === c.title);
 
     return (
-      <div key={c.id} className="card-interactive p-5">
-        <Link to={`/teacher/courses/${c.id}/detail`} className="block mb-3">
+      <div key={c.id} className={`card-interactive p-5 ${linked ? 'opacity-80 border-dashed' : ''}`}>
+        {linked && (
+          <div className="flex items-center gap-1.5 mb-2">
+            <span className="text-[9px] font-bold bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">LINKED COURSE — {instructor?.name || 'Another Professor'}</span>
+          </div>
+        )}
+        <Link to={linked ? '#' : `/teacher/courses/${c.id}/detail`} className={`block mb-3 ${linked ? 'pointer-events-none' : ''}`}>
           <div className="flex items-start justify-between mb-2">
             <h3 className="font-bold text-gray-900 hover:text-leap-blue transition-colors">{c.title}</h3>
             <span className={`badge whitespace-nowrap ${cfg.color}`}>
@@ -172,7 +181,7 @@ export function CoursesPage() {
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-xl font-black text-gray-900">My Courses</h1>
         <div className="flex gap-2">
-          {isCollege && activeCourses.length >= 2 && (
+          {isCollege && activeCourses.length >= 1 && (
             <Link to="/teacher/programs/prog-default" className="btn-secondary text-[12px] flex items-center gap-1.5">
               <span className="text-purple-600">◆</span> Program Graph
             </Link>
@@ -212,7 +221,7 @@ export function CoursesPage() {
                 <span className="text-[9px] text-gray-300 normal-case tracking-normal font-normal">— can be taken in parallel</span>
               </h2>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {foundationCourses.map(c => <CourseCard key={c.id} c={c} />)}
+                {foundationCourses.map(c => <CourseCard key={c.id} c={c} linked={linkedCourses.some(lc => lc.id === c.id)} />)}
               </div>
             </div>
           )}
@@ -239,7 +248,7 @@ export function CoursesPage() {
                 <span className="text-[9px] text-gray-300 normal-case tracking-normal font-normal">— require foundation courses</span>
               </h2>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {dependentCourses.map(c => <CourseCard key={c.id} c={c} />)}
+                {dependentCourses.map(c => <CourseCard key={c.id} c={c} linked={linkedCourses.some(lc => lc.id === c.id)} />)}
               </div>
             </div>
           )}

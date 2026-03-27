@@ -8,7 +8,7 @@ import { JourneySteps } from '../../components/shared/JourneySteps';
 import { SkeletonPage } from '../../components/shared/LoadingSkeleton';
 import type { Course, Gate, Lesson, Question, SubConcept } from '@leap/shared';
 
-type Tab = 'overview' | 'kg' | 'lessons' | 'scripts' | 'questions' | 'timetable' | 'settings';
+type Tab = 'overview' | 'syllabus' | 'kg' | 'lessons' | 'scripts' | 'questions' | 'timetable' | 'settings';
 
 interface SessionPlan {
   id: string;
@@ -73,6 +73,7 @@ export function CourseDetailPage() {
 
   const tabs: { key: Tab; label: string; count?: number; hidden?: boolean }[] = [
     { key: 'overview', label: 'Overview' },
+    { key: 'syllabus', label: 'Syllabus', hidden: !course.syllabus_text || course.syllabus_text.length < 200 },
     { key: 'kg', label: 'Knowledge Graph', count: gates.length },
     { key: 'lessons', label: 'Lessons', count: lessons.length },
     { key: 'scripts', label: 'Socratic Scripts', count: lessons.filter(l => l.socratic_scripts?.length).length },
@@ -224,6 +225,24 @@ export function CourseDetailPage() {
                   <div><span className="text-gray-400 text-[11px]">Sessions:</span> {course.total_sessions} x {course.session_duration_minutes}min</div>
                 )}
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Syllabus Tab */}
+      {tab === 'syllabus' && course.syllabus_text && (
+        <div className="fade-in">
+          <div className="card p-6">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="text-sm font-black text-gray-900">Course Syllabus</h3>
+                <p className="text-[11px] text-gray-400">{course.title} — {(course as any).academic_year || '2025-26'}</p>
+              </div>
+              <span className="text-[10px] text-gray-400">{course.syllabus_text.length.toLocaleString()} characters</span>
+            </div>
+            <div className="bg-gray-50 rounded-xl border border-gray-100 p-5 max-h-[70vh] overflow-y-auto">
+              <pre className="text-[12px] text-gray-700 whitespace-pre-wrap font-sans leading-relaxed">{course.syllabus_text}</pre>
             </div>
           </div>
         </div>
