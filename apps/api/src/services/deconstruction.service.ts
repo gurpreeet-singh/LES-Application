@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { LLMProvider } from './llm/provider.js';
+import { LLM_TIERS } from './llm/provider.js';
 import { SYSTEM_PROMPT, GATE_COLORS } from '@leap/shared';
 import { parseLLMOutput } from './llm/parser.js';
 import type { DeconstructionOutput } from '@leap/shared';
@@ -166,6 +167,7 @@ export class DeconstructionService {
         userMessage: `Deconstruct this syllabus (structure only — gates, concepts, bloom, sequence):\n\n${syllabusText}`,
         maxTokens: 8000,
         temperature: 0.3,
+        model: LLM_TIERS.SMART, // Tier 1: Complex curriculum understanding needs Sonnet
       });
     } catch (err) {
       throw new Error(`Phase 1 (structure) failed: ${(err as Error).message}`);
@@ -199,6 +201,7 @@ export class DeconstructionService {
           userMessage: gatePrompt,
           maxTokens: 8000,
           temperature: 0.3,
+          model: LLM_TIERS.FAST, // Tier 2: Structured lesson generation — Haiku is sufficient
         });
       } catch (err) {
         console.error(`Phase 2 gate ${gate.number} failed: ${(err as Error).message}`);

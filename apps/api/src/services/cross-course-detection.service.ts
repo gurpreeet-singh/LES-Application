@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { LLMProvider } from './llm/provider.js';
+import { LLM_TIERS } from './llm/provider.js';
 
 /**
  * After a course is deconstructed, detect cross-course gate dependencies
@@ -86,6 +87,7 @@ If no cross-course dependencies exist, output: []`;
       userMessage: prompt,
       maxTokens: 2000,
       temperature: 0.2,
+      model: LLM_TIERS.FAST, // Tier 2: Pattern matching task — Haiku sufficient
     });
   } catch (err) {
     console.error('Cross-course detection LLM call failed:', (err as Error).message);

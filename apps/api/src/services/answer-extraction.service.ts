@@ -1,4 +1,5 @@
 import type { LLMProvider, ContentPart } from './llm/provider.js';
+import { LLM_TIERS } from './llm/provider.js';
 import { EXTRACTION_SYSTEM_PROMPT, buildExtractionPrompt } from '@leap/shared';
 import type { QuestionContext } from '@leap/shared';
 
@@ -31,6 +32,7 @@ export class AnswerExtractionService {
       userMessage: content,
       temperature: 0.1,
       maxTokens: 4000,
+      model: LLM_TIERS.CHEAP, // Tier 3: Vision extraction — Gemini Flash is fast and cheap
     });
 
     return this.parseResponse(raw, questions.length);
@@ -48,6 +50,7 @@ export class AnswerExtractionService {
       userMessage,
       temperature: 0.1,
       maxTokens: 4000,
+      model: LLM_TIERS.CHEAP, // Tier 3: Text extraction — Gemini Flash sufficient
     });
 
     return this.parseResponse(raw, questions.length);

@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { LLMProvider } from './llm/provider.js';
+import { LLM_TIERS } from './llm/provider.js';
 import { buildQuizGenerationPrompt } from '@leap/shared';
 
 export class QuizGenerationService {
@@ -50,6 +51,7 @@ export class QuizGenerationService {
           userMessage: user,
           maxTokens: 8000,
           temperature: 0.3,
+          model: LLM_TIERS.FAST, // Tier 2: Quiz generation — structured output, Haiku sufficient
         });
 
         // Parse response
