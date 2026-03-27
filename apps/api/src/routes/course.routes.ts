@@ -7,6 +7,7 @@ import { QuizGenerationService } from '../services/quiz-generation.service.js';
 import { createLLMProvider } from '../services/llm/provider.js';
 import { SessionPlannerService } from '../services/session-planner.service.js';
 import { detectCrossCourseEdges } from '../services/cross-course-detection.service.js';
+import { llmLimit } from '../middleware/rate-limit.js';
 
 const syllabusUpload = multer({
   storage: multer.memoryStorage(),
@@ -301,7 +302,7 @@ router.post('/:id/syllabus/upload', requireRole('teacher'), syllabusUpload, asyn
 });
 
 // POST /courses/:id/process — Trigger LLM deconstruction (background)
-router.post('/:id/process', requireRole('teacher'), async (req: Request, res: Response) => {
+router.post('/:id/process', requireRole('teacher'), llmLimit, async (req: Request, res: Response) => {
   const { data: course, error } = await supabaseAdmin
     .from('courses')
     .select('*')
