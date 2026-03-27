@@ -100,42 +100,63 @@ class OpenRouterProvider implements LLMProvider {
       ? params.userMessage
       : params.userMessage;
 
-    // Use fetch + SSE streaming directly to avoid OpenAI SDK timeout checks
-    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${env.OPENROUTER_API_KEY}`,
-        'HTTP-Referer': env.FRONTEND_URL,
-        'X-Title': 'LEAP Platform',
-      },
-      body: JSON.stringify({
-        model: env.OPENROUTER_MODEL || 'anthropic/claude-sonnet-4',
-        max_tokens: params.maxTokens || 16000,
-        temperature: params.temperature ?? 0.3,
-        stream: true,
-        messages: [
-          { role: 'system', content: params.systemPrompt },
-          { role: 'user', content: userContent },
-        ],
-      }),
-    });
+    // 5-minute timeout for the initial connection
+    const controller = new AbortController();
+    const connectionTimeout = setTimeout(() => controller.abort(), 5 * 60 * 1000);
+
+    let response: Response;
+    try {
+      response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${env.OPENROUTER_API_KEY}`,
+          'HTTP-Referer': env.FRONTEND_URL,
+          'X-Title': 'LEAP Platform',
+        },
+        body: JSON.stringify({
+          model: env.OPENROUTER_MODEL || 'anthropic/claude-sonnet-4',
+          max_tokens: params.maxTokens || 16000,
+          temperature: params.temperature ?? 0.3,
+          stream: true,
+          messages: [
+            { role: 'system', content: params.systemPrompt },
+            { role: 'user', content: userContent },
+          ],
+        }),
+        signal: controller.signal,
+      });
+    } catch (err: any) {
+      clearTimeout(connectionTimeout);
+      if (err.name === 'AbortError') {
+        throw new Error('AI service timed out after 5 minutes. Please try again with a shorter syllabus.');
+      }
+      throw new Error(`AI service connection failed: ${err.message}`);
+    }
+    clearTimeout(connectionTimeout);
 
     if (!response.ok) {
-      const err = await response.text();
-      throw new Error(`OpenRouter API error ${response.status}: ${err.slice(0, 200)}`);
+      const errText = await response.text().catch(() => 'Unknown error');
+      // User-friendly error messages for common codes
+      if (response.status === 429) throw new Error('AI service is temporarily busy (rate limited). Please wait 1-2 minutes and try again.');
+      if (response.status === 402) throw new Error('AI service credits exhausted. Please contact the administrator.');
+      if (response.status === 401) throw new Error('AI service authentication failed. Please check the API key configuration.');
+      throw new Error(`AI service error (${response.status}): ${errText.slice(0, 200)}`);
     }
 
-    // Parse SSE stream
+    // Parse SSE stream with a 3-minute chunk timeout (no data for 3 min = stuck)
     const reader = response.body!.getReader();
     const decoder = new TextDecoder();
     let result = '';
     let buffer = '';
+    let lastChunkTime = Date.now();
+    const CHUNK_TIMEOUT = 3 * 60 * 1000; // 3 minutes between chunks
 
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
 
+      lastChunkTime = Date.now();
       buffer += decoder.decode(value, { stream: true });
       const lines = buffer.split('\n');
       buffer = lines.pop() || '';
@@ -150,6 +171,17 @@ class OpenRouterProvider implements LLMProvider {
           if (delta) result += delta;
         } catch { /* skip malformed chunks */ }
       }
+
+      // Check if we've been waiting too long between chunks
+      if (Date.now() - lastChunkTime > CHUNK_TIMEOUT) {
+        reader.cancel();
+        console.warn('LLM stream stalled — returning partial result');
+        break;
+      }
+    }
+
+    if (!result.trim()) {
+      throw new Error('AI returned an empty response. Please try again with a more descriptive syllabus.');
     }
 
     return result;
