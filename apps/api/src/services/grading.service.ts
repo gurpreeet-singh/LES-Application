@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { LLMProvider } from './llm/provider.js';
+import { LLM_TIERS } from './llm/provider.js';
 import { buildGradingPrompt } from '@leap/shared';
 
 interface StudentAnswer {
@@ -79,6 +80,7 @@ export class GradingService {
           userMessage: user,
           maxTokens: 4000,
           temperature: 0.2,
+          model: LLM_TIERS.FAST, // Tier 2: Grading is structured evaluation — Haiku sufficient
         });
 
         const jsonStr = rawResponse.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();

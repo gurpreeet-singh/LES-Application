@@ -10,8 +10,19 @@ export interface LLMProvider {
     userMessage: string | ContentPart[];
     temperature?: number;
     maxTokens?: number;
+    model?: string; // Override the default model
   }): Promise<string>;
 }
+
+// ─── Tiered LLM Model Selection ─────────────────────────────
+// Tier 1 (Smart): Complex curriculum understanding — Claude Sonnet
+// Tier 2 (Fast): Structured I/O (lessons, quizzes, grading) — Claude Haiku
+// Tier 3 (Cheap): Vision, summaries — Gemini Flash
+export const LLM_TIERS = {
+  SMART: env.OPENROUTER_MODEL || 'anthropic/claude-sonnet-4',           // Phase 1 deconstruction
+  FAST: 'anthropic/claude-haiku-4-5-20251001',                                  // Phase 2 lessons, quizzes, grading, suggestions
+  CHEAP: 'google/gemini-flash-1.5',                                     // Vision extraction, briefing summaries
+};
 
 export function createLLMProvider(provider?: string): LLMProvider {
   const p = provider || env.DEFAULT_LLM_PROVIDER;
@@ -95,7 +106,7 @@ class OpenAIProvider implements LLMProvider {
 }
 
 class OpenRouterProvider implements LLMProvider {
-  async complete(params: { systemPrompt: string; userMessage: string | ContentPart[]; temperature?: number; maxTokens?: number }) {
+  async complete(params: { systemPrompt: string; userMessage: string | ContentPart[]; temperature?: number; maxTokens?: number; model?: string }) {
     const userContent = typeof params.userMessage === 'string'
       ? params.userMessage
       : params.userMessage;
@@ -115,7 +126,7 @@ class OpenRouterProvider implements LLMProvider {
           'X-Title': 'LEAP Platform',
         },
         body: JSON.stringify({
-          model: env.OPENROUTER_MODEL || 'anthropic/claude-sonnet-4',
+          model: params.model || env.OPENROUTER_MODEL || 'anthropic/claude-sonnet-4',
           max_tokens: params.maxTokens || 16000,
           temperature: params.temperature ?? 0.3,
           stream: true,
