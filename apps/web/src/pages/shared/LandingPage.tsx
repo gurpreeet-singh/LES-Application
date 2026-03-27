@@ -73,6 +73,20 @@ const DEMO_PERSONAS = [
     logos: ['ikigai', 'horizon'],
     highlights: ['GEN2008 — Innovation, Entrepreneurship & Sustainability', 'Cross-course dependencies with Marketing', 'Bottleneck detection across courses', 'INNOVATEX project showcase'],
   },
+  {
+    id: 'college-student',
+    institution: 'Horizon University College',
+    instType: 'Higher Education',
+    role: 'Student',
+    name: 'Fatima (Demo Student)',
+    email: 'student@hu.ac.ae',
+    password: 'student123',
+    navRole: 'student',
+    color: '#059669',
+    icon: '📝',
+    logos: ['ikigai', 'horizon'],
+    highlights: ['Enrolled in Marketing + IES courses', 'Take quizzes across courses', 'Switch between courses', 'Track cross-course progress'],
+  },
 ];
 
 export function LandingPage() {

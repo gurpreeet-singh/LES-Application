@@ -31,7 +31,6 @@ function downloadCSV(questions: any[], lessonTitle: string) {
 }
 
 function downloadLessonPDF(lesson: any, gate: any, questions: any[]) {
-  // Generate a printable HTML and trigger print
   const scripts = lesson.socratic_scripts || [];
   const html = `<!DOCTYPE html><html><head><title>Lesson Plan - ${lesson.title}</title>
 <style>body{font-family:-apple-system,sans-serif;max-width:800px;margin:40px auto;padding:20px;color:#1F2937}
@@ -39,9 +38,10 @@ h1{font-size:22px;border-bottom:2px solid #1B3A6B;padding-bottom:8px}h2{font-siz
 h3{font-size:14px;color:#374151;margin-top:16px}.meta{color:#6B7280;font-size:13px}
 .script-stage{background:#F3F4F6;padding:12px;border-radius:8px;margin:8px 0;border-left:3px solid #7C3AED}
 .question{border:1px solid #E5E7EB;padding:12px;border-radius:8px;margin:8px 0}
-.correct{background:#D4EDDA;padding:4px 8px;border-radius:4px}</style></head><body>
+.correct{background:#D4EDDA;padding:4px 8px;border-radius:4px}
+@media print{body{margin:20px}}</style></head><body>
 <h1>Session ${lesson.lesson_number}: ${lesson.title}</h1>
-<p class="meta">Gate: G${gate?.gate_number || ''} ${gate?.title || ''} | Duration: ${lesson.duration_minutes} min | Bloom: ${(lesson.bloom_levels || []).join(', ')}</p>
+<p class="meta">Topic ${gate?.gate_number || ''}: ${gate?.title || ''} | Duration: ${lesson.duration_minutes} min | Bloom's Taxonomy: ${(lesson.bloom_levels || []).join(', ')}</p>
 <h2>Learning Objective</h2><p>${lesson.objective}</p>
 ${lesson.key_idea ? `<h2>Key Idea</h2><p>${lesson.key_idea}</p>` : ''}
 ${lesson.conceptual_breakthrough ? `<h2>Conceptual Breakthrough</h2><p>${lesson.conceptual_breakthrough}</p>` : ''}
@@ -57,8 +57,22 @@ ${scripts.length > 0 ? `<h2>Socratic Teaching Script</h2>${scripts.map((s: any) 
 ${q.options ? q.options.map((o: any) => `<br/>${o.is_correct ? '<span class="correct">' : ''}${o.text}${o.is_correct ? ' ✓</span>' : ''}`).join('') : ''}
 ${q.correct_answer ? `<br/><em>Answer:</em> ${q.correct_answer}` : ''}</div>`).join('')}
 </body></html>`;
-  const w = window.open('', '_blank');
-  if (w) { w.document.write(html); w.document.close(); w.print(); }
+  // Create downloadable PDF via print-to-PDF
+  const blob = new Blob([html], { type: 'text/html' });
+  const url = URL.createObjectURL(blob);
+  const w = window.open(url, '_blank');
+  if (w) {
+    w.onload = () => {
+      // Auto-trigger Save as PDF via print dialog
+      setTimeout(() => w.print(), 500);
+    };
+  }
+  // Also offer direct HTML download as fallback
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `Lesson_${lesson.lesson_number}_${lesson.title.replace(/[^a-zA-Z0-9]/g, '_')}.html`;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 export function LessonDetailPage() {
@@ -558,31 +572,45 @@ function MediaPanel({ courseId, lessonId, lessonTitle, lessonNumber }: { courseI
     window.speechSynthesis.cancel();
     setVideoPlaying(true); setVideoSlideIdx(0);
 
-    const speakSlide = (idx: number) => {
-      if (idx >= slides.length) { setVideoPlaying(false); return; }
-      setVideoSlideIdx(idx);
-      const s = slides[idx];
-      const items = s.numberedItems || s.bullets || [];
-      // Build natural narration for this slide
-      let text = '';
-      if (s.type === 'title') text = `${s.title}. ${s.subtitle || ''}`;
-      else if (s.type === 'question') text = `${s.sectionLabel}. ${s.title}. ${items.join('. ')}. Take a moment to think about this.`;
-      else if (s.type === 'breakthrough') text = `Here's the breakthrough moment. ${items.join('. ')}`;
-      else if (s.type === 'example') text = `Let's look at some examples. ${items.map((it, i) => `Example ${i + 1}: ${it}`).join('. ')}`;
-      else if (s.type === 'summary') text = `Let's recap. ${items.map(it => `${it}`).join('. ')}`;
-      else text = `${s.title}. ${items.join('. ')}`;
+    // Ensure voices are loaded (Chrome loads them async)
+    const ensureVoices = (): Promise<void> => new Promise(resolve => {
+      const voices = window.speechSynthesis.getVoices();
+      if (voices.length > 0) { resolve(); return; }
+      window.speechSynthesis.onvoiceschanged = () => resolve();
+      setTimeout(resolve, 1000); // fallback after 1s
+    });
 
-      const isKey = s.type === 'concept' || s.type === 'breakthrough';
-      const isQ = s.type === 'question';
-      const utter = new SpeechSynthesisUtterance(text);
-      utter.rate = isKey ? 0.82 : isQ ? 0.85 : 0.9;
-      utter.pitch = isQ ? 1.08 : 1.0;
-      const voice = getPreferredVoice();
-      if (voice) utter.voice = voice;
-      utter.onend = () => setTimeout(() => speakSlide(idx + 1), 2000); // 2 second pause between slides
-      window.speechSynthesis.speak(utter);
-    };
-    speakSlide(0);
+    ensureVoices().then(() => {
+      const speakSlide = (idx: number) => {
+        if (idx >= slides.length) { setVideoPlaying(false); return; }
+        setVideoSlideIdx(idx);
+        const s = slides[idx];
+        const items = s.numberedItems || s.bullets || [];
+        let text = '';
+        if (s.type === 'title') text = `${s.title}. ${s.subtitle || ''}`;
+        else if (s.type === 'question') text = `${s.sectionLabel}. ${s.title}. ${items.join('. ')}. Take a moment to think about this.`;
+        else if (s.type === 'breakthrough') text = `Here's the breakthrough moment. ${items.join('. ')}`;
+        else if (s.type === 'example') text = `Let's look at some examples. ${items.map((it, i) => `Example ${i + 1}: ${it}`).join('. ')}`;
+        else if (s.type === 'summary') text = `Let's recap. ${items.map(it => `${it}`).join('. ')}`;
+        else text = `${s.title}. ${items.join('. ')}`;
+
+        if (!text.trim()) { setTimeout(() => speakSlide(idx + 1), 500); return; }
+
+        const isKey = s.type === 'concept' || s.type === 'breakthrough';
+        const isQ = s.type === 'question';
+        const utter = new SpeechSynthesisUtterance(text);
+        utter.rate = isKey ? 0.82 : isQ ? 0.85 : 0.9;
+        utter.pitch = isQ ? 1.08 : 1.0;
+        const voice = getPreferredVoice();
+        if (voice) utter.voice = voice;
+        utter.onend = () => setTimeout(() => speakSlide(idx + 1), 2000);
+        // Fallback: if onend doesn't fire within 30s, force advance
+        const fallbackTimer = setTimeout(() => { speakSlide(idx + 1); }, 30000);
+        utter.onend = () => { clearTimeout(fallbackTimer); setTimeout(() => speakSlide(idx + 1), 2000); };
+        window.speechSynthesis.speak(utter);
+      };
+      speakSlide(0);
+    });
   };
 
   const handleStopVideo = () => { window.speechSynthesis.cancel(); setVideoPlaying(false); };

@@ -45,8 +45,13 @@ router.get('/my-schedule/today', async (req: Request, res: Response) => {
       ? await supabaseAdmin.from('lessons').select('id, course_id, lesson_number, title, objective').in('course_id', courseIds).order('lesson_number')
       : { data: [] };
 
-    // Fetch all teachers for substitute detection
-    const { data: allTeachers } = await supabaseAdmin.from('profiles').select('id, full_name, email').eq('role', 'teacher');
+    // Fetch all teachers for substitute detection — filtered by same school
+    const { data: myProfile } = await supabaseAdmin.from('profiles').select('school').eq('id', teacherId).single();
+    const mySchool = myProfile?.school;
+
+    let teacherQuery = supabaseAdmin.from('profiles').select('id, full_name, email, school').eq('role', 'teacher');
+    if (mySchool) teacherQuery = teacherQuery.eq('school', mySchool);
+    const { data: allTeachers } = await teacherQuery;
     const teacherMap = new Map((allTeachers || []).map(t => [t.id, t]));
     const me = teacherMap.get(teacherId);
 
