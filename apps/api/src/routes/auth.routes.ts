@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import { supabaseAdmin } from '../config/supabase.js';
 import { authenticate } from '../middleware/auth.js';
 import { seedDemoCourse } from '../services/demo-seeder.service.js';
-import { seedCollegeDemoCourses } from '../services/college-demo-seeder.service.js';
+import { seedHUCDemoCourses } from '../services/huc-demo-seeder.service.js';
 
 const router = Router();
 
@@ -66,9 +66,9 @@ router.post('/signup', async (req: Request, res: Response) => {
 
   // Seed demo course for new teacher accounts (non-blocking)
   if (role === 'teacher') {
-    const isCollege = email.includes('college') || email.includes('university') || req.body.demo_type === 'college';
+    const isCollege = email.includes('college') || email.includes('university') || email.includes('hu.ac.ae') || req.body.demo_type === 'college';
     if (isCollege) {
-      seedCollegeDemoCourses(supabaseAdmin, data.user.id).then(result => {
+      seedHUCDemoCourses(supabaseAdmin, data.user.id).then(result => {
         console.log(`College demo seeded for ${email}: ${result.courseIds}`);
       }).catch(err => {
         console.error(`College demo seed failed for ${email}:`, err.message);

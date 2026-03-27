@@ -32,7 +32,7 @@ const COLLEGE_STEPS: Step[] = [
 
 export function PlatformGuidePage() {
   const { profile } = useAuth();
-  const isCollege = profile?.school === 'Horizon University College' || profile?.email?.includes('college') || profile?.email?.includes('university');
+  const isCollege = profile?.school === 'Horizon University College' || profile?.email?.includes('college') || profile?.email?.includes('university') || profile?.email?.includes('hu.ac.ae');
   const STEPS = isCollege ? COLLEGE_STEPS : SCHOOL_STEPS;
 
   const [currentStep, setCurrentStep] = useState(0);

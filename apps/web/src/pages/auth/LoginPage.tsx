@@ -8,7 +8,8 @@ const DEMO_ACCOUNTS: Record<string, { label: string; email: string; password: st
     { label: 'Teacher — Mrs. Anita Verma', email: 'anita@lmgc.edu', password: 'demo123', role: 'teacher' },
   ],
   college: [
-    { label: 'Professor — Prof. Rajesh Kumar', email: 'prof.college@university.edu', password: 'college123', role: 'teacher' },
+    { label: 'Prof. Abhay — Marketing', email: 'abhay@hu.ac.ae', password: 'huc12345', role: 'teacher' },
+    { label: 'Prof. Shashank — Innovation & Entrepreneurship', email: 'shashank@hu.ac.ae', password: 'huc12345', role: 'teacher' },
   ],
 };
 
