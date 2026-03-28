@@ -16,6 +16,8 @@ export interface StudentGateProgress {
   updated_at: string;
 }
 
+export type GradingStatus = 'in_progress' | 'auto_graded' | 'ai_assisted' | 'faculty_reviewed' | 'finalized';
+
 export interface QuestionAttempt {
   id: string;
   student_id: string;
@@ -26,8 +28,11 @@ export interface QuestionAttempt {
   score?: number;
   bloom_level_demonstrated?: BloomLevel;
   time_spent_seconds?: number;
-  ai_feedback?: string;
+  ai_feedback?: Record<string, unknown>;
   misconceptions?: string[];
+  grading_status: GradingStatus;
+  graded_by_user_id?: string;
+  attempt_number: number;
   attempted_at: string;
 }
 

@@ -1,46 +1,60 @@
--- Migration 021: Notifications
--- Multi-channel notification system (in-app, WhatsApp, email, push)
+-- 021_notifications.sql
+-- Layer 1: Multi-channel notification system.
+-- Unblocks: A-04 (Absentee Agent parent notifications), A-05 (Compliance reminders),
+--           A-09 (Auto-reminders to lagging faculty)
+
+-- ============================================================
+-- 1. ENUMs
+-- ============================================================
 
 CREATE TYPE notification_channel AS ENUM ('in_app', 'whatsapp', 'email', 'push');
-CREATE TYPE notification_category AS ENUM ('assessment', 'content', 'attendance', 'recording', 'recommendation', 'system');
+CREATE TYPE notification_category AS ENUM (
+  'assessment', 'content', 'attendance', 'recording', 'recommendation', 'system'
+);
 CREATE TYPE delivery_status AS ENUM ('queued', 'sent', 'delivered', 'read', 'failed');
 
--- In-app, WhatsApp, email, push notifications for all users
-CREATE TABLE public.notifications (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  recipient_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
-  channel notification_channel NOT NULL DEFAULT 'in_app',
-  category notification_category NOT NULL,
-  title VARCHAR(300) NOT NULL,
-  body TEXT NOT NULL,
-  action_url TEXT,
-  external_id VARCHAR(100),
-  delivery_status delivery_status NOT NULL DEFAULT 'queued',
-  read_at TIMESTAMPTZ,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+-- ============================================================
+-- 2. notifications
+-- ============================================================
+
+CREATE TABLE notifications (
+  id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id           UUID          NOT NULL REFERENCES profiles(id),
+  channel           notification_channel NOT NULL,
+  category          notification_category NOT NULL,
+  title             VARCHAR(300)  NOT NULL,
+  body              TEXT          NOT NULL,
+  action_url        TEXT,                              -- deep link into app
+  external_id       VARCHAR(100),                      -- WhatsApp/email message ID
+  delivery_status   delivery_status NOT NULL DEFAULT 'queued',
+  read_at           TIMESTAMPTZ,
+  created_at        TIMESTAMPTZ   NOT NULL DEFAULT now()
 );
 
--- Indexes
-CREATE INDEX idx_notifications_recipient ON public.notifications(recipient_id);
-CREATE INDEX idx_notifications_channel ON public.notifications(channel);
-CREATE INDEX idx_notifications_category ON public.notifications(category);
-CREATE INDEX idx_notifications_status ON public.notifications(delivery_status);
-CREATE INDEX idx_notifications_created_at ON public.notifications(created_at DESC);
-CREATE INDEX idx_notifications_unread ON public.notifications(recipient_id)
-  WHERE delivery_status != 'read';
+CREATE INDEX idx_notifications_user ON notifications (user_id, created_at DESC);
+CREATE INDEX idx_notifications_unread ON notifications (user_id, delivery_status)
+  WHERE delivery_status NOT IN ('read');
+CREATE INDEX idx_notifications_delivery ON notifications (delivery_status)
+  WHERE delivery_status IN ('queued', 'sent');
+CREATE INDEX idx_notifications_category ON notifications (user_id, category);
 
--- RLS
-ALTER TABLE public.notifications ENABLE ROW LEVEL SECURITY;
+-- ============================================================
+-- 3. RLS policies
+-- ============================================================
 
--- Users see and manage only their own notifications
-CREATE POLICY "Users view own notifications" ON public.notifications
-  FOR SELECT USING (recipient_id = auth.uid());
+ALTER TABLE notifications ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "Users update own notifications" ON public.notifications
-  FOR UPDATE USING (recipient_id = auth.uid());
+-- Users see own notifications
+CREATE POLICY "Users view own notifications"
+  ON notifications FOR SELECT TO authenticated
+  USING (user_id = auth.uid());
 
--- Admins can view all notifications
-CREATE POLICY "Admins view all notifications" ON public.notifications
-  FOR SELECT USING (
-    EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role IN ('admin', 'management'))
-  );
+-- Users can mark own as read
+CREATE POLICY "Users update own notifications"
+  ON notifications FOR UPDATE TO authenticated
+  USING (user_id = auth.uid())
+  WITH CHECK (user_id = auth.uid());
+
+-- Service role creates notifications
+CREATE POLICY "Service role manages notifications"
+  ON notifications FOR ALL TO service_role USING (true);

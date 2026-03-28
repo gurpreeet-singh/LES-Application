@@ -13,6 +13,8 @@ export interface Distractor {
   misconception: string;
 }
 
+export type QuestionSource = 'ai_generated' | 'faculty_created';
+
 export interface Question {
   id: string;
   gate_id: string;
@@ -30,5 +32,12 @@ export interface Question {
   learning_style?: string;
   is_diagnostic: boolean;
   status: LessonStatus;
+  marks?: number;
+  topic_tag?: string;
+  source?: QuestionSource;
+  discrimination?: number;
+  guessing?: number;
+  times_used: number;
+  avg_score_pct?: number;
   created_at: string;
 }

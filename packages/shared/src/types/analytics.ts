@@ -31,7 +31,10 @@ export interface DependencyRisk {
 }
 
 export type SuggestionStatus = 'pending' | 'accepted' | 'edited' | 'rejected';
-export type SuggestionType = 'lesson_refine' | 'gate_delay' | 'peer_teaching' | 'remediation' | 'pace_change';
+export type SuggestionType = 'lesson_refine' | 'gate_delay' | 'peer_teaching' | 'remediation' | 'pace_change' | 'topic_shift' | 'socratic_update' | 'quiz_adjust' | 'add_remediation' | 'bloom_focus';
+export type RecommendationTarget = 'student' | 'faculty' | 'admin' | 'management';
+export type RecommendationSeverity = 'info' | 'warning' | 'critical';
+export type RecommendationCategory = 'at_risk_student' | 'low_satisfaction' | 'missing_content' | 'chronic_absence' | 'grade_drop' | 'faculty_improvement' | 'curriculum_gap' | 'engagement_drop' | 'timetable_conflict';
 
 export interface AISuggestion {
   id: string;
@@ -44,6 +47,12 @@ export interface AISuggestion {
   tag?: string;
   status: SuggestionStatus;
   teacher_edit?: string;
+  target_role: RecommendationTarget;
+  severity: RecommendationSeverity;
+  category?: RecommendationCategory;
+  suggested_action?: string;
+  context?: Record<string, unknown>;
+  expires_at?: string;
   generated_at: string;
   resolved_at?: string;
 }
