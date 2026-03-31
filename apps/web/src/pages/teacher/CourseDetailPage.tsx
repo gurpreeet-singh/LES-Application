@@ -64,6 +64,24 @@ export function CourseDetailPage() {
 
   const hasTimetable = course.total_sessions;
 
+  // Bloom level distribution across all lessons
+  const bloomOrder = ['remember', 'understand', 'apply', 'analyze', 'evaluate', 'create'];
+  const bloomCounts: Record<string, number> = {};
+  lessons.forEach(l => {
+    l.bloom_levels?.forEach(bl => {
+      const key = bl.toLowerCase();
+      bloomCounts[key] = (bloomCounts[key] || 0) + 1;
+    });
+  });
+  const bloomColorMap: Record<string, string> = {
+    remember: 'bg-slate-100 text-slate-700',
+    understand: 'bg-blue-100 text-blue-700',
+    apply: 'bg-green-100 text-green-700',
+    analyze: 'bg-amber-100 text-amber-700',
+    evaluate: 'bg-orange-100 text-orange-700',
+    create: 'bg-rose-100 text-rose-700',
+  };
+
   const statusColors: Record<string, string> = {
     draft: 'bg-gray-100 text-gray-700',
     processing: 'bg-yellow-100 text-yellow-800',
@@ -73,7 +91,7 @@ export function CourseDetailPage() {
 
   const tabs: { key: Tab; label: string; count?: number; hidden?: boolean }[] = [
     { key: 'overview', label: 'Overview' },
-    { key: 'syllabus', label: 'Syllabus', hidden: !course.syllabus_text || course.syllabus_text.length < 200 },
+    { key: 'syllabus', label: 'Syllabus & Objectives', hidden: gates.length === 0 && (!course.syllabus_text || course.syllabus_text.length < 200) },
     { key: 'kg', label: 'Knowledge Graph', count: gates.length },
     { key: 'lessons', label: 'Lessons', count: lessons.length },
     { key: 'scripts', label: 'Socratic Scripts', count: lessons.filter(l => l.socratic_scripts?.length).length },
@@ -230,21 +248,125 @@ export function CourseDetailPage() {
         </div>
       )}
 
-      {/* Syllabus Tab */}
-      {tab === 'syllabus' && course.syllabus_text && (
-        <div className="fade-in">
-          <div className="card p-6">
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <h3 className="text-sm font-black text-gray-900">Course Syllabus</h3>
-                <p className="text-[11px] text-gray-400">{course.title} — {(course as any).academic_year || '2025-26'}</p>
+      {/* Syllabus & Objectives Tab */}
+      {tab === 'syllabus' && (
+        <div className="fade-in space-y-5">
+          {/* Summary Bar */}
+          {gates.length > 0 && (
+            <div className="card p-5">
+              <div className="grid grid-cols-3 gap-4 mb-4">
+                <div className="text-center">
+                  <p className="text-2xl font-black text-leap-blue">{gates.length}</p>
+                  <p className="text-[11px] text-gray-400">Units / Gates</p>
+                </div>
+                <div className="text-center">
+                  <p className="text-2xl font-black text-leap-green">{lessons.length}</p>
+                  <p className="text-[11px] text-gray-400">Lessons</p>
+                </div>
+                <div className="text-center">
+                  <p className="text-2xl font-black text-leap-purple">{lessons.filter(l => l.objective).length}</p>
+                  <p className="text-[11px] text-gray-400">Learning Objectives</p>
+                </div>
               </div>
-              <span className="text-[10px] text-gray-400">{course.syllabus_text.length.toLocaleString()} characters</span>
+              {Object.keys(bloomCounts).length > 0 && (
+                <div>
+                  <p className="text-[11px] text-gray-400 mb-2">Bloom Level Coverage</p>
+                  <div className="flex gap-1.5 flex-wrap">
+                    {bloomOrder.filter(bl => bloomCounts[bl]).map(bl => (
+                      <span key={bl} className={`text-[11px] font-medium px-2.5 py-1 rounded-full ${bloomColorMap[bl]}`}>
+                        {bl.charAt(0).toUpperCase() + bl.slice(1)} ({bloomCounts[bl]})
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
-            <div className="bg-gray-50 rounded-xl border border-gray-100 p-5 max-h-[70vh] overflow-y-auto">
-              <pre className="text-[12px] text-gray-700 whitespace-pre-wrap font-sans leading-relaxed">{course.syllabus_text}</pre>
+          )}
+
+          {/* Structured Syllabus — Gate by Gate */}
+          {[...gates].sort((a, b) => a.gate_number - b.gate_number).map(g => {
+            const gateLessons = lessons.filter(l => l.gate_id === g.id).sort((a, b) => a.lesson_number - b.lesson_number);
+            return (
+              <div key={g.id} className="card overflow-hidden">
+                {/* Gate Header */}
+                <div className="p-4 flex items-center gap-3" style={{ borderLeft: `4px solid ${g.color || '#6366f1'}` }}>
+                  <div className="w-9 h-9 rounded-full flex items-center justify-center text-white text-sm font-bold shrink-0" style={{ background: g.color || '#6366f1' }}>
+                    G{g.gate_number}
+                  </div>
+                  <div className="flex-1">
+                    <h3 className="font-bold text-gray-900">{g.title}</h3>
+                    <p className="text-[11px] text-gray-500">
+                      {gateLessons.length} lesson{gateLessons.length !== 1 ? 's' : ''}
+                      {g.sub_concepts && g.sub_concepts.length > 0 ? ` · ${g.sub_concepts.length} sub-concepts` : ''}
+                      {g.period ? ` · ${g.period}` : ''}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Sub-concepts */}
+                {g.sub_concepts && g.sub_concepts.length > 0 && (
+                  <div className="px-5 pb-3 flex flex-wrap gap-1.5">
+                    {g.sub_concepts.map(sc => (
+                      <span key={sc.id} className="text-[10px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">{sc.title}</span>
+                    ))}
+                  </div>
+                )}
+
+                {/* Lessons with Objectives */}
+                <div className="border-t border-gray-100">
+                  {gateLessons.map((l, idx) => (
+                    <div key={l.id} className={`px-5 py-3 ${idx < gateLessons.length - 1 ? 'border-b border-gray-50' : ''}`}>
+                      <div className="flex items-start gap-3">
+                        <span className="text-[11px] font-bold text-gray-400 mt-0.5 w-7 shrink-0">L{l.lesson_number}</span>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-gray-900">{l.title}</p>
+                          {l.objective && (
+                            <p className="text-[12px] text-gray-600 mt-1">
+                              <span className="font-medium text-leap-blue">Objective:</span> {l.objective}
+                            </p>
+                          )}
+                          {l.key_idea && (
+                            <p className="text-[11px] text-gray-500 mt-0.5">
+                              <span className="font-medium text-gray-400">Key Idea:</span> {l.key_idea}
+                            </p>
+                          )}
+                          {l.bloom_levels && l.bloom_levels.length > 0 && (
+                            <div className="flex gap-1 mt-1.5">
+                              {l.bloom_levels.map(bl => <BloomBadge key={bl} level={bl} />)}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                  {gateLessons.length === 0 && (
+                    <div className="px-5 py-3 text-[12px] text-gray-400 italic">No lessons in this gate yet</div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+
+          {/* Original Uploaded Syllabus (Collapsible) */}
+          {course.syllabus_text && (
+            <div className="card overflow-hidden">
+              <button
+                onClick={() => setShowSyllabus(!showSyllabus)}
+                className="w-full text-left p-4 flex items-center justify-between hover:bg-gray-50 transition"
+              >
+                <div>
+                  <h3 className="text-sm font-bold text-gray-700">Original Uploaded Syllabus</h3>
+                  <p className="text-[11px] text-gray-400">{course.syllabus_text.length.toLocaleString()} characters</p>
+                </div>
+                <span className="text-gray-400 text-sm transition-transform" style={{ transform: showSyllabus ? 'rotate(180deg)' : '' }}>{'\u25BC'}</span>
+              </button>
+              {showSyllabus && (
+                <div className="animate-slide-down border-t border-gray-100 p-5 max-h-[60vh] overflow-y-auto">
+                  <pre className="text-[12px] text-gray-700 whitespace-pre-wrap font-sans leading-relaxed">{course.syllabus_text}</pre>
+                </div>
+              )}
             </div>
-          </div>
+          )}
         </div>
       )}
 

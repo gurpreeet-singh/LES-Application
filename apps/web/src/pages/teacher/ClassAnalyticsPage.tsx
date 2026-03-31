@@ -100,6 +100,8 @@ export function ClassAnalyticsPage() {
   const [attention, setAttention] = useState<any[]>([]);
   const [adaptiveData, setAdaptiveData] = useState<AdaptiveData | null>(null);
   const [selectedStudent, setSelectedStudent] = useState<string | null>(null);
+  const [studentDetail, setStudentDetail] = useState<any>(null);
+  const [studentDetailLoading, setStudentDetailLoading] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [expandedSession, setExpandedSession] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
@@ -375,23 +377,24 @@ export function ClassAnalyticsPage() {
             </div>
           </div>
 
-          {/* Mastery Heatmap */}
+          {/* Mastery Heatmap — scrollable */}
           <div className="card p-4">
             <h3 className="section-header mb-3 flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-leap-purple inline-block" />
               Student x Gate Mastery
+              <span className="text-[10px] font-normal text-gray-400 ml-2">{heatmap.students.length} students</span>
             </h3>
-            <div className="overflow-x-auto">
+            <div className="overflow-auto" style={{ maxHeight: '40vh' }}>
               <table className="w-full text-sm" style={{ borderCollapse: 'separate', borderSpacing: 2 }}>
-                <thead>
+                <thead className="sticky top-0 bg-white z-10">
                   <tr>
-                    <th className="text-left py-1 pr-2 text-[10px] text-gray-400 font-medium">Student</th>
+                    <th className="text-left py-1 pr-2 text-[10px] text-gray-400 font-medium bg-white">Student</th>
                     {heatmap.gates.map(g => (
-                      <th key={g.id} className="text-center py-1 px-1">
+                      <th key={g.id} className="text-center py-1 px-1 bg-white">
                         <div className="w-6 h-6 rounded-full mx-auto flex items-center justify-center text-white text-[9px] font-bold" style={{ background: g.color }}>{g.gate_number}</div>
                       </th>
                     ))}
-                    <th className="text-center py-1 px-1 text-[10px] text-gray-400">Avg</th>
+                    <th className="text-center py-1 px-1 text-[10px] text-gray-400 bg-white">Avg</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -519,200 +522,297 @@ export function ClassAnalyticsPage() {
 
       {/* ===================== TAB 3: STUDENT PERFORMANCE ===================== */}
       {tab === 'students' && (
-        <div className="fade-in">
-          {/* Class Trajectory + Student Deep Dive */}
+        <div className="fade-in space-y-5">
+          {/* 1. Class Score Trajectory — full width, top */}
           <ClassTrajectory courseId={courseId!} />
 
-          <div className="mt-5" />
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-            {/* Left: Heatmap + Bloom */}
-            <div className="lg:col-span-2 space-y-5">
-              {/* Gate selector */}
-              <div className="card p-4">
-                <h3 className="section-header mb-3">Select Gate for Bloom Analysis</h3>
-                <div className="flex gap-2 flex-wrap">
-                  {heatmap.gates.map(g => (
+          {/* 2. KG + Bloom + Velocity — 3-column row */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            <div className="card p-4">
+              <h3 className="section-header mb-3">Gate Mastery</h3>
+              <div className="space-y-2">
+                {heatmap.gates.map((g, gi) => {
+                  const isSelected = selGate === g.id;
+                  return (
                     <button key={g.id} onClick={() => setSelGate(g.id)}
-                      className={`flex-1 min-w-[100px] p-2 rounded-xl border-2 transition-all text-left ${selGate === g.id ? '' : 'border-gray-200 bg-gray-50'}`}
-                      style={selGate === g.id ? { borderColor: g.color, background: `${g.color}10` } : {}}>
-                      <div className="flex items-center justify-between">
-                        <span className="text-[10px] text-gray-500 font-medium">G{g.gate_number}</span>
-                        <span className="text-sm font-black" style={{ color: g.color }}>{g.avg}%</span>
+                      className={`w-full flex items-center gap-3 p-2.5 rounded-xl transition-all text-left ${isSelected ? 'ring-2 bg-white shadow-sm' : 'hover:bg-gray-50'}`}
+                      style={isSelected ? { borderColor: g.color, ringColor: g.color } : {}}>
+                      <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-[10px] font-bold shrink-0" style={{ background: g.color }}>G{g.gate_number}</div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-[11px] font-medium text-gray-700 truncate">{g.short_title}</span>
+                          <span className="text-[11px] font-black ml-2" style={{ color: g.color }}>{g.avg}%</span>
+                        </div>
+                        <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                          <div className="h-full rounded-full transition-all" style={{ width: `${g.avg}%`, background: g.color }} />
+                        </div>
                       </div>
-                      <p className="text-[10px] text-gray-500 truncate">{g.short_title}</p>
+                      {gi < heatmap.gates.length - 1 && (
+                        <span className="text-gray-300 text-[10px] shrink-0">→</span>
+                      )}
                     </button>
-                  ))}
-                </div>
+                  );
+                })}
               </div>
+            </div>
+            <div className="card p-4">
+              <h3 className="section-header mb-2">Bloom — {heatmap.gates.find(g => g.id === selGate)?.short_title || 'Select Gate'}</h3>
+              <div className="flex gap-1 flex-wrap mb-2">
+                {heatmap.gates.map(g => (
+                  <button key={g.id} onClick={() => setSelGate(g.id)}
+                    className={`px-2 py-0.5 rounded-lg text-[9px] font-bold transition-all ${selGate === g.id ? 'text-white' : 'bg-gray-50 text-gray-500 hover:bg-gray-100'}`}
+                    style={selGate === g.id ? { background: g.color } : {}}>
+                    G{g.gate_number} {g.avg}%
+                  </button>
+                ))}
+              </div>
+              {bloomDist ? (
+                <>
+                  <BloomBarSVG data={bloomDist.levels.map(l => ({ level: l.level.charAt(0).toUpperCase() + l.level.slice(1), pct: l.pct }))} />
+                  <div className="mt-2 p-2 bg-amber-50 border border-amber-200 rounded-lg text-[10px] text-amber-800">{bloomDist.gap_analysis}</div>
+                </>
+              ) : <p className="text-[11px] text-gray-400 text-center py-4">Select a gate</p>}
+            </div>
+            <div className="card p-4">
+              <h3 className="section-header mb-2">Class Learning Velocity</h3>
+              <VelocitySVG
+                data={(() => {
+                  const completed = sessionAnalytics?.sessions.filter(s => s.status === 'completed' && s.avg_quiz_score > 0) || [];
+                  if (completed.length < 2) return [0, 0];
+                  const step = Math.max(1, Math.floor(completed.length / 8));
+                  return Array.from({ length: Math.min(8, completed.length) }, (_, i) => {
+                    const idx = Math.min(i * step, completed.length - 1);
+                    return completed[idx].avg_quiz_score;
+                  });
+                })()}
+                color={heatmap.gates.find(g => g.id === selGate)?.color || '#2E75B6'}
+                width={400}
+                height={180}
+              />
+              {bloomDist && (
+                <div className="mt-3 flex justify-center">
+                  <BloomRadar
+                    data={Object.fromEntries(bloomDist.levels.map(l => [l.level.charAt(0).toUpperCase() + l.level.slice(1), l.pct]))}
+                    color={heatmap.gates.find(g => g.id === selGate)?.color || '#2E75B6'}
+                    size={180}
+                  />
+                </div>
+              )}
+            </div>
+          </div>
 
-              {/* Heatmap */}
+          {/* 3. Student Table (left) + Detail Panel (right) */}
+          <div className="grid grid-cols-1 lg:grid-cols-5 gap-5">
+            {/* LEFT: Combined student table with heatmap data */}
+            <div className="lg:col-span-3">
               <div className="card p-4">
-                <h3 className="section-header mb-3">Student x Gate Mastery</h3>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm" style={{ borderCollapse: 'separate', borderSpacing: 2 }}>
-                    <thead>
-                      <tr>
-                        <th className="text-left py-1 pr-2 text-[10px] text-gray-400">Student</th>
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="section-header">Students <span className="text-[10px] font-normal text-gray-400">({heatmap.students.length})</span></h3>
+                  <span className="text-[10px] text-gray-400">Click a row for details</span>
+                </div>
+                <div className="overflow-auto" style={{ maxHeight: '45vh' }}>
+                  <table className="w-full text-sm" style={{ borderCollapse: 'separate', borderSpacing: '0 2px' }}>
+                    <thead className="sticky top-0 z-10">
+                      <tr className="bg-gray-50">
+                        <th className="text-left py-2 pl-3 pr-1 text-[10px] text-gray-400 font-medium rounded-l-lg">#</th>
+                        <th className="text-left py-2 pr-2 text-[10px] text-gray-400 font-medium">Student</th>
                         {heatmap.gates.map(g => (
-                          <th key={g.id} className="text-center py-1 px-1" style={selGate === g.id ? { borderBottom: `2px solid ${g.color}` } : {}}>
-                            <div className="w-6 h-6 rounded-full mx-auto flex items-center justify-center text-white text-[9px] font-bold" style={{ background: g.color }}>{g.gate_number}</div>
+                          <th key={g.id} className="text-center py-2 px-0.5" style={selGate === g.id ? { borderBottom: `2px solid ${g.color}` } : {}}>
+                            <span className="text-[9px] font-bold" style={{ color: g.color }}>G{g.gate_number}</span>
                           </th>
                         ))}
-                        <th className="text-center py-1 text-[10px] text-gray-400">Avg</th>
+                        <th className="text-center py-2 px-1 text-[10px] text-gray-400 font-medium rounded-r-lg">Avg</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {heatmap.students.map(s => (
-                        <tr key={s.id} className="hover:bg-gray-50">
-                          <td className="py-1.5 pr-2">
-                            <div className="flex items-center gap-2">
-                              <div className="w-6 h-6 rounded-full bg-gray-100 text-gray-500 flex items-center justify-center text-[10px] font-bold">{s.name.charAt(0)}</div>
-                              <span className="text-[12px] font-medium text-gray-700">{s.name}</span>
-                            </div>
-                          </td>
-                          {s.gate_scores.map(gs => {
-                            const mc = getMasteryColor(gs.mastery_pct);
-                            return (
-                              <td key={gs.gate_id} className="text-center py-1.5 px-1">
-                                <span className="inline-flex items-center justify-center w-12 h-7 rounded-md text-[11px] font-bold" style={{ background: mc.bg, color: mc.txt }}>
-                                  {gs.mastery_pct > 0 ? `${gs.mastery_pct}%` : '—'}
-                                </span>
-                              </td>
-                            );
-                          })}
-                          <td className="text-center py-1.5"><span className="text-[12px] font-bold text-gray-600">{s.average}%</span></td>
-                        </tr>
-                      ))}
+                      {[...heatmap.students].sort((a, b) => b.average - a.average).map((s, rank) => {
+                        const isSelected = selectedStudent === s.id;
+                        return (
+                          <tr key={s.id}
+                            onClick={() => {
+                              setSelectedStudent(s.id);
+                              setStudentDetailLoading(true);
+                              setStudentDetail(null);
+                              api.get<any>(`/courses/${courseId}/analytics/student/${s.id}`).then(d => {
+                                setStudentDetail(d.student);
+                                setStudentDetailLoading(false);
+                              }).catch(() => setStudentDetailLoading(false));
+                            }}
+                            className={`cursor-pointer transition-all ${isSelected ? 'bg-blue-50' : 'hover:bg-gray-50'}`}>
+                            <td className="py-1.5 pl-3 pr-1">
+                              <span className={`w-5 h-5 inline-flex items-center justify-center rounded-full text-[9px] font-bold ${rank < 3 ? 'bg-leap-navy text-white' : 'bg-gray-100 text-gray-400'}`}>{rank + 1}</span>
+                            </td>
+                            <td className="py-1.5 pr-2">
+                              <span className={`text-[12px] font-medium ${isSelected ? 'text-leap-navy' : 'text-gray-700'}`}>{s.name}</span>
+                            </td>
+                            {s.gate_scores.map(gs => {
+                              const mc = getMasteryColor(gs.mastery_pct);
+                              return (
+                                <td key={gs.gate_id} className="text-center py-1 px-0.5">
+                                  <span className="inline-flex items-center justify-center w-10 h-6 rounded text-[10px] font-bold" style={{ background: mc.bg, color: mc.txt }}>
+                                    {gs.mastery_pct > 0 ? gs.mastery_pct : '—'}
+                                  </span>
+                                </td>
+                              );
+                            })}
+                            <td className="text-center py-1.5 px-1">
+                              <span className={`text-[11px] font-black ${s.average >= 75 ? 'text-green-600' : s.average >= 60 ? 'text-amber-600' : 'text-red-600'}`}>{s.average}%</span>
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
               </div>
-
-              {/* Knowledge Graph with Mastery */}
-              <div className="card p-4">
-                <h3 className="section-header mb-3">Knowledge Graph — Class Mastery</h3>
-                <KGCircleNodes
-                  gates={heatmap.gates.map(g => ({ ...g, id: g.id, light_color: g.color + '20', sub_concepts: [] }))}
-                  showMastery
-                  masteryData={Object.fromEntries(heatmap.gates.map(g => [g.id, g.avg]))}
-                  onSelectGate={(g) => setSelGate(g.id)}
-                  selectedGateId={selGate}
-                />
-              </div>
-
-              {/* Bloom Distribution */}
-              {bloomDist && (
-                <div className="card p-4">
-                  <h3 className="section-header mb-3">Bloom Distribution — {heatmap.gates.find(g => g.id === selGate)?.short_title}</h3>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <BloomBarSVG data={bloomDist.levels.map(l => ({ level: l.level.charAt(0).toUpperCase() + l.level.slice(1), pct: l.pct }))} />
-                    </div>
-                    <div className="flex items-center justify-center">
-                      <BloomRadar
-                        data={Object.fromEntries(bloomDist.levels.map(l => [l.level.charAt(0).toUpperCase() + l.level.slice(1), l.pct]))}
-                        color={heatmap.gates.find(g => g.id === selGate)?.color || '#2E75B6'}
-                        size={180}
-                      />
-                    </div>
-                  </div>
-                  <div className="mt-3 p-3 bg-amber-50 border border-amber-200 rounded-xl text-[12px] text-amber-800">{bloomDist.gap_analysis}</div>
-                </div>
-              )}
-
-              {/* Learning Velocity — computed from actual session data */}
-              <div className="card p-4">
-                <h3 className="section-header mb-3">Class Learning Velocity</h3>
-                <p className="text-[11px] text-gray-500 mb-3">Average quiz scores across completed sessions</p>
-                <VelocitySVG
-                  data={(() => {
-                    const completed = sessionAnalytics?.sessions.filter(s => s.status === 'completed' && s.avg_quiz_score > 0) || [];
-                    if (completed.length < 2) return [0, 0];
-                    // Sample 6 evenly spaced points from completed sessions
-                    const step = Math.max(1, Math.floor(completed.length / 6));
-                    return Array.from({ length: Math.min(6, completed.length) }, (_, i) => {
-                      const idx = Math.min(i * step, completed.length - 1);
-                      return completed[idx].avg_quiz_score;
-                    });
-                  })()}
-                  color={heatmap.gates.find(g => g.id === selGate)?.color || '#2E75B6'}
-                  width={380}
-                  height={120}
-                />
-              </div>
             </div>
 
-            {/* Right sidebar */}
-            <div className="space-y-5">
-              {/* Dependency Risks */}
+            {/* RIGHT: Student detail + Risks + Attention + Suggestions */}
+            <div className="lg:col-span-2 lg:sticky lg:top-4 lg:self-start space-y-4" style={{ maxHeight: '85vh', overflowY: 'auto' }}>
+              {/* Student Detail */}
               <div className="card p-4">
-                <h3 className="section-header mb-3 flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-leap-red inline-block" />
-                  Dependency Risks
-                </h3>
-                {risks.length === 0 ? <p className="text-[11px] text-gray-400">No risks detected</p> : (
-                  <div className="space-y-2">
-                    {risks.map((r, i) => (
-                      <div key={i} className={`p-2.5 rounded-xl border text-[11px] ${r.severity === 'critical' ? 'border-red-200 bg-red-50' : r.severity === 'high' ? 'border-amber-200 bg-amber-50' : 'border-gray-200 bg-gray-50'}`}>
-                        <p className="font-bold">{r.severity === 'critical' ? '🔴' : r.severity === 'high' ? '🟠' : '🟡'} G{r.from_gate.number} → G{r.to_gate.number} ({r.affected_students.length} students)</p>
-                        <p className="text-gray-600 mt-0.5">{r.reason}</p>
-                      </div>
-                    ))}
+                {!selectedStudent ? (
+                  <div className="text-center py-8">
+                    <p className="text-3xl mb-2">👈</p>
+                    <p className="text-[12px] text-gray-500 font-medium">Select a student from the table</p>
+                    <p className="text-[10px] text-gray-400 mt-1">Click any row to see their full performance breakdown</p>
                   </div>
-                )}
+                ) : studentDetailLoading ? (
+                  <div className="text-center py-8">
+                    <div className="w-6 h-6 border-2 border-leap-navy border-t-transparent rounded-full animate-spin mx-auto mb-2" />
+                    <p className="text-[11px] text-gray-400">Loading...</p>
+                  </div>
+                ) : studentDetail ? (
+                  <div>
+                    <div className="flex items-center gap-3 mb-3">
+                      <div className="w-10 h-10 rounded-full bg-leap-navy text-white flex items-center justify-center text-sm font-bold">{studentDetail.name.charAt(0)}</div>
+                      <div className="flex-1">
+                        <h3 className="text-sm font-black text-gray-900">{studentDetail.name}</h3>
+                        <p className="text-[10px] text-gray-400">{studentDetail.email}</p>
+                      </div>
+                      <button onClick={() => { setSelectedStudent(null); setStudentDetail(null); }} className="text-gray-300 hover:text-gray-500">&times;</button>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2 mb-3">
+                      <div className="bg-gray-50 rounded-lg p-2 text-center">
+                        <p className="text-base font-black text-leap-blue">{studentDetail.overall_score}%</p>
+                        <p className="text-[8px] text-gray-400">Score</p>
+                      </div>
+                      <div className="bg-gray-50 rounded-lg p-2 text-center">
+                        <p className="text-base font-black text-leap-green">{studentDetail.accuracy}%</p>
+                        <p className="text-[8px] text-gray-400">Accuracy</p>
+                      </div>
+                      <div className="bg-gray-50 rounded-lg p-2 text-center">
+                        <p className="text-base font-black text-leap-purple">{studentDetail.total_attempts}</p>
+                        <p className="text-[8px] text-gray-400">Attempts</p>
+                      </div>
+                    </div>
+                    {studentDetail.bloom_profile && Object.keys(studentDetail.bloom_profile).length > 0 && (
+                      <div className="mb-3 flex justify-center">
+                        <BloomRadar
+                          data={Object.fromEntries(Object.entries(studentDetail.bloom_profile).map(([k, v]) => [k.charAt(0).toUpperCase() + k.slice(1), v]))}
+                          color="#1B3A6B" size={180}
+                        />
+                      </div>
+                    )}
+                    {studentDetail.gate_progress?.length > 0 && (
+                      <div className="mb-3">
+                        <p className="text-[9px] font-bold text-gray-400 uppercase mb-1.5">Gate Progress</p>
+                        <div className="space-y-1">
+                          {studentDetail.gate_progress.map((g: any) => (
+                            <div key={g.gate_number} className="flex items-center gap-1.5">
+                              <span className="text-[9px] font-bold text-gray-400 w-5">G{g.gate_number}</span>
+                              <div className="flex-1 h-3 bg-gray-100 rounded-full overflow-hidden">
+                                <div className="h-full rounded-full" style={{ width: `${g.mastery_pct}%`, background: g.gate_color }} />
+                              </div>
+                              <span className="text-[9px] font-bold w-7 text-right" style={{ color: g.gate_color }}>{g.mastery_pct}%</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {studentDetail.misconceptions?.length > 0 && (
+                      <div className="mb-3">
+                        <p className="text-[9px] font-bold text-gray-400 uppercase mb-1.5">Misconceptions</p>
+                        {studentDetail.misconceptions.slice(0, 4).map((m: any, i: number) => (
+                          <div key={i} className="flex items-center gap-1.5 text-[10px] mb-0.5">
+                            <span className="w-4 h-4 rounded-full bg-red-100 text-red-600 flex items-center justify-center text-[8px] font-bold shrink-0">{m.count}</span>
+                            <span className="text-gray-600 truncate">{m.misconception}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {studentDetail.recommendation && (
+                      <div className="p-2.5 bg-blue-50 border border-blue-200 rounded-xl text-[10px] text-blue-800">
+                        <p className="font-bold mb-0.5">AI Recommendation</p>
+                        <p>{studentDetail.recommendation}</p>
+                      </div>
+                    )}
+                  </div>
+                ) : null}
               </div>
 
-              {/* AI Suggestions — same data source as AI Guide tab */}
-              <div className="card p-4">
-                <h3 className="section-header mb-3 flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-leap-blue pulse-dot inline-block" />
-                  AI Suggestions
-                  <button onClick={() => setTab('ai_guide')} className="text-[10px] text-blue-600 hover:underline ml-auto font-normal normal-case tracking-normal">View all in AI Guide →</button>
+              {/* Dependency Risks */}
+              <div className="card p-3">
+                <h3 className="section-header mb-2 flex items-center gap-2 text-[11px]">
+                  <span className="w-2 h-2 rounded-full bg-leap-red inline-block" /> Dependency Risks
                 </h3>
-                {!adaptiveData || adaptiveData.suggestions.length === 0 ? <p className="text-[11px] text-gray-400">No suggestions yet</p> : (
-                  <div className="space-y-2">
-                    {adaptiveData.suggestions.filter(s => s.status === 'pending').slice(0, 3).map(s => {
-                      const tc = TYPE_CONFIG[s.type] || { icon: '💡', label: s.type, color: '#6B7280' };
-                      return (
-                        <div key={s.id} className="p-2.5 rounded-xl border text-[11px]">
-                          <div className="flex items-center gap-1.5 mb-1">
-                            <span className="text-sm">{tc.icon}</span>
-                            <span className="font-bold text-gray-700">{s.title}</span>
-                          </div>
-                          <p className="text-gray-500">{s.reason.slice(0, 120)}{s.reason.length > 120 ? '...' : ''}</p>
-                          <div className="flex gap-1.5 mt-2">
-                            <button onClick={() => resolveAdaptive(s.id, 'accepted')} className="btn-accept text-[10px] py-1 px-2.5">Accept</button>
-                            <button onClick={() => resolveAdaptive(s.id, 'rejected')} className="btn-reject text-[10px] py-1 px-2.5">Reject</button>
-                          </div>
-                        </div>
-                      );
-                    })}
-                    {adaptiveData.suggestions.filter(s => s.status === 'pending').length > 3 && (
-                      <button onClick={() => setTab('ai_guide')} className="text-[11px] text-blue-600 hover:underline">
-                        + {adaptiveData.suggestions.filter(s => s.status === 'pending').length - 3} more suggestions →
-                      </button>
-                    )}
+                {risks.length === 0 ? <p className="text-[10px] text-gray-400">No risks detected</p> : (
+                  <div className="space-y-1.5 max-h-32 overflow-y-auto">
+                    {risks.slice(0, 5).map((r, i) => (
+                      <div key={i} className={`p-2 rounded-lg border text-[10px] ${r.severity === 'critical' ? 'border-red-200 bg-red-50' : 'border-amber-200 bg-amber-50'}`}>
+                        <span className="font-bold">{r.severity === 'critical' ? '🔴' : '🟠'} G{r.from_gate.number}→G{r.to_gate.number}</span>
+                        <span className="text-gray-500 ml-1">({r.affected_students.length} students)</span>
+                      </div>
+                    ))}
                   </div>
                 )}
               </div>
 
               {/* Immediate Attention */}
-              <div className="card p-4">
-                <h3 className="section-header mb-3 flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-leap-red inline-block" />
-                  Immediate Attention
+              <div className="card p-3">
+                <h3 className="section-header mb-2 flex items-center gap-2 text-[11px]">
+                  <span className="w-2 h-2 rounded-full bg-leap-red inline-block" /> Needs Attention
                 </h3>
-                {attention.length === 0 ? <p className="text-[11px] text-gray-400">No students at risk</p> : (
-                  <div className="space-y-2">
-                    {attention.map((s: any) => (
-                      <div key={s.id} className="flex items-start gap-2 text-[11px] p-2 rounded-lg hover:bg-gray-50">
-                        <div className="w-7 h-7 rounded-full bg-red-100 text-red-700 flex items-center justify-center text-[11px] font-bold flex-shrink-0">{s.name.charAt(0)}</div>
-                        <div>
-                          <p className="font-bold text-gray-700">{s.name}</p>
-                          {s.at_risk_gates.map((g: any) => <p key={g.gate_number} className="text-red-600">G{g.gate_number} {g.short_title}: {g.mastery_pct}%</p>)}
-                        </div>
+                {attention.length === 0 ? <p className="text-[10px] text-gray-400">No students at risk</p> : (
+                  <div className="space-y-1 max-h-32 overflow-y-auto">
+                    {attention.slice(0, 6).map((s: any) => (
+                      <div key={s.id} className="flex items-center gap-2 text-[10px] p-1.5 rounded-lg hover:bg-gray-50 cursor-pointer"
+                        onClick={() => {
+                          setSelectedStudent(s.id); setStudentDetailLoading(true); setStudentDetail(null);
+                          api.get<any>(`/courses/${courseId}/analytics/student/${s.id}`).then(d => { setStudentDetail(d.student); setStudentDetailLoading(false); }).catch(() => setStudentDetailLoading(false));
+                        }}>
+                        <span className="w-5 h-5 rounded-full bg-red-100 text-red-700 flex items-center justify-center text-[9px] font-bold shrink-0">{s.name.charAt(0)}</span>
+                        <span className="text-gray-700 font-medium truncate flex-1">{s.name}</span>
+                        <span className="text-red-600 font-bold">{s.at_risk_gates[0]?.mastery_pct}%</span>
                       </div>
                     ))}
+                  </div>
+                )}
+              </div>
+
+              {/* AI Suggestions */}
+              <div className="card p-3">
+                <h3 className="section-header mb-2 flex items-center gap-2 text-[11px]">
+                  <span className="w-2 h-2 rounded-full bg-leap-blue pulse-dot inline-block" /> AI Suggestions
+                  <button onClick={() => setTab('ai_guide')} className="text-[9px] text-blue-600 hover:underline ml-auto font-normal normal-case tracking-normal">View all →</button>
+                </h3>
+                {!adaptiveData || adaptiveData.suggestions.length === 0 ? <p className="text-[10px] text-gray-400">No suggestions</p> : (
+                  <div className="space-y-1.5 max-h-32 overflow-y-auto">
+                    {adaptiveData.suggestions.filter(s => s.status === 'pending').slice(0, 3).map(s => {
+                      const tc = TYPE_CONFIG[s.type] || { icon: '💡', label: s.type, color: '#6B7280' };
+                      return (
+                        <div key={s.id} className="p-2 rounded-lg border text-[10px]">
+                          <div className="flex items-center gap-1 mb-1">
+                            <span>{tc.icon}</span>
+                            <span className="font-bold text-gray-700 truncate">{s.title}</span>
+                          </div>
+                          <div className="flex gap-1">
+                            <button onClick={() => resolveAdaptive(s.id, 'accepted')} className="btn-accept text-[9px] py-0.5 px-2">Accept</button>
+                            <button onClick={() => resolveAdaptive(s.id, 'rejected')} className="btn-reject text-[9px] py-0.5 px-2">Reject</button>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </div>

@@ -78,12 +78,14 @@ export default function App() {
               <Route path="/admin/teachers/:teacherId" element={<TeacherProfilePage />} />
               <Route path="/admin/teachers/:teacherId/courses/:courseId" element={<AdminCourseAnalyticsPage />} />
               <Route path="/admin/timetable" element={<TimetablePage />} />
+              <Route path="/admin/guide" element={<PlatformGuidePage />} />
             </Route>
 
             {/* Student routes */}
             <Route element={<ProtectedRoute allowedRoles={['student']} />}>
               <Route path="/student" element={<StudentDashboardPage />} />
               <Route path="/student/courses/:courseId/quiz/:gateId" element={<StudentQuizPage />} />
+              <Route path="/student/guide" element={<PlatformGuidePage />} />
             </Route>
 
             <Route path="*" element={<NotFoundPage />} />

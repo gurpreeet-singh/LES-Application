@@ -151,6 +151,9 @@ ${avgMastery > 80 ? 'Students are performing well — increase difficulty, add m
     const gate = lesson.gate as any;
     const subConcepts = (gate?.sub_concepts || []).map((sc: any) => sc.title || sc);
 
+    // Get course class_level for age-appropriate question generation
+    const { data: courseData } = await supabaseAdmin.from('courses').select('class_level').eq('id', courseId).single();
+
     const { buildQuizGenerationPrompt } = await import('@leap/shared');
     const { system, user } = buildQuizGenerationPrompt([{
       lesson_number: lesson.lesson_number,
@@ -160,7 +163,7 @@ ${avgMastery > 80 ? 'Students are performing well — increase difficulty, add m
       bloom_levels: lesson.bloom_levels || ['remember', 'understand'],
       gate_title: gate?.title || gate?.short_title || '',
       sub_concepts: subConcepts,
-    }]);
+    }], courseData?.class_level || undefined);
 
     const rawResponse = await provider.complete({
       systemPrompt: system + pastContext,

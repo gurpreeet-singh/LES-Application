@@ -348,6 +348,7 @@ router.post('/:id/process', requireRole('teacher'), llmLimit, async (req: Reques
     () => {}, // No SSE callbacks needed
     course.total_sessions || undefined,
     course.session_duration_minutes || undefined,
+    course.class_level || undefined,
   ).then(async () => {
     console.log(`Deconstruction complete for course ${course.id}`);
 

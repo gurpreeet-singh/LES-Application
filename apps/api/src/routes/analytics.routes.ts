@@ -278,56 +278,99 @@ router.get('/sessions', requireRole('teacher'), async (req: Request, res: Respon
   const totalSessions = course?.total_sessions || sessionSource.length || 0;
   const studentCount = enrollments?.length || 0;
 
-  // Query real attempt data per gate from question_attempts
+  // ─── REAL DATA: Query all question_attempts for this course's gates ───
+  // IMPORTANT: Supabase default limit is 1000 rows. Must set explicit limit for large datasets.
   const gateIds = (gates || []).map(g => g.id);
-  const { data: allGateAttempts } = gateIds.length > 0
-    ? await supabaseAdmin
+  let allAttempts: { question_id: string; gate_id: string; student_id: string; score: number; is_correct: boolean }[] = [];
+  if (gateIds.length > 0) {
+    // Fetch in batches per gate to avoid row limits
+    for (const gid of gateIds) {
+      const { data } = await supabaseAdmin
         .from('question_attempts')
-        .select('gate_id, student_id, score')
-        .in('gate_id', gateIds)
-    : { data: [] as { gate_id: string; student_id: string; score: number }[] };
-
-  // Build per-gate real counts: students_attempted and students_passed (avg score >= 60)
-  const gateAttemptStats = new Map<string, { attempted: number; passed: number }>();
-  if (allGateAttempts && allGateAttempts.length > 0) {
-    const byGate = new Map<string, Map<string, number[]>>();
-    for (const a of allGateAttempts) {
-      if (!byGate.has(a.gate_id)) byGate.set(a.gate_id, new Map());
-      const studentMap = byGate.get(a.gate_id)!;
-      if (!studentMap.has(a.student_id)) studentMap.set(a.student_id, []);
-      studentMap.get(a.student_id)!.push(a.score);
-    }
-    for (const [gateId, studentMap] of byGate) {
-      let passed = 0;
-      for (const [, scores] of studentMap) {
-        const avg = scores.reduce((s, v) => s + v, 0) / scores.length;
-        if (avg >= 60) passed++;
-      }
-      gateAttemptStats.set(gateId, { attempted: studentMap.size, passed });
+        .select('question_id, gate_id, student_id, score, is_correct')
+        .eq('gate_id', gid)
+        .limit(10000);
+      if (data) allAttempts.push(...data);
     }
   }
 
-  // Estimate completion: if students have progress data, mark proportional sessions as completed
-  const totalProgress = (progress || []).filter(p => p.mastery_pct > 0).length;
-  const totalPossible = studentCount * (gates || []).length;
-  const completionRatio = totalPossible > 0 ? totalProgress / totalPossible : 0;
-  const completedSessionCount = Math.max(0, Math.floor(sessionSource.length * completionRatio));
-  const currentSession = Math.min(completedSessionCount + 1, totalSessions);
+  // Get all questions for round-robin per-lesson distribution
+  const { data: allQuestions } = await supabaseAdmin
+    .from('questions').select('id, gate_id').eq('course_id', courseId).order('difficulty').limit(5000);
 
-  // Build session data
+  // Build per-lesson question sets (round-robin distribution)
+  const lessonQuestionMap = new Map<string, Set<string>>();
+  for (const lesson of (lessons || [])) {
+    const gateQ = (allQuestions || []).filter(q => q.gate_id === lesson.gate_id);
+    const gateLessonsForGate = (lessons || []).filter(l => l.gate_id === lesson.gate_id);
+    const idx = gateLessonsForGate.findIndex(l => l.id === lesson.id);
+    const count = gateLessonsForGate.length || 1;
+    const qIds = new Set(gateQ.filter((_: any, qi: number) => qi % count === idx).map(q => q.id));
+    lessonQuestionMap.set(lesson.id, qIds);
+  }
+
+  // Per-lesson stats from actual attempts
+  const lessonStats = new Map<string, { attempted: Set<string>; scores: number[]; studentScores: Map<string, number[]> }>();
+  for (const lesson of (lessons || [])) {
+    const qIds = lessonQuestionMap.get(lesson.id) || new Set();
+    const stats = { attempted: new Set<string>(), scores: [] as number[], studentScores: new Map<string, number[]>() };
+    for (const a of (allAttempts || [])) {
+      if (qIds.has(a.question_id)) {
+        stats.attempted.add(a.student_id);
+        stats.scores.push(a.score);
+        if (!stats.studentScores.has(a.student_id)) stats.studentScores.set(a.student_id, []);
+        stats.studentScores.get(a.student_id)!.push(a.score);
+      }
+    }
+    lessonStats.set(lesson.id, stats);
+  }
+
+  // Determine session completion: if the gate has sufficient attempt data, its sessions are completed
+  // Build gate-level attempt stats
+  const gateAttemptCounts = new Map<string, number>();
+  for (const a of (allAttempts || [])) {
+    gateAttemptCounts.set(a.gate_id, (gateAttemptCounts.get(a.gate_id) || 0) + 1);
+  }
+  // A gate is "data-complete" if it has at least (studentCount * 2) attempts (avg 2 per student)
+  const gateHasData = new Map<string, boolean>();
+  for (const g of (gates || [])) {
+    const count = gateAttemptCounts.get(g.id) || 0;
+    gateHasData.set(g.id, count >= Math.max(1, studentCount * 2));
+  }
+
+  // Mark ~70% of data-complete gate sessions as completed (realistic — not everything is done)
+  let completedSessionCount = 0;
   const sessionData = sessionSource.map((s: any, i: number) => {
     const sessionNum = i + 1;
-    const status = sessionNum < currentSession ? 'completed' : sessionNum === currentSession ? 'in_progress' : 'upcoming';
     const gate = (gates || []).find((g: any) => g.id === s.gate_id);
+    const ls = lessonStats.get(s.lesson_id);
+    const gateComplete = gate ? (gateHasData.get(gate.id) || false) : false;
+    const hasData = gateComplete && ls && ls.scores.length > 0;
 
-    // For completed sessions, derive scores from actual student_gate_progress
+    // Compute per-lesson average score
     let avgScore = 0;
-    if (status === 'completed' && gate && progress) {
-      const gateProgress = progress.filter(p => p.gate_id === gate.id && p.mastery_pct > 0);
-      avgScore = gateProgress.length > 0
-        ? Math.round(gateProgress.reduce((a, p) => a + p.mastery_pct, 0) / gateProgress.length)
-        : 0;
+    let studentsAttempted = 0;
+    let studentsPassed = 0;
+    const studentScoreList: { student_id: string; student_name: string; score: number }[] = [];
+
+    if (ls && ls.scores.length > 0) {
+      avgScore = Math.round(ls.scores.reduce((a, v) => a + v, 0) / ls.scores.length);
+      studentsAttempted = ls.attempted.size;
+      for (const [sid, scores] of ls.studentScores) {
+        const avg = Math.round(scores.reduce((a, v) => a + v, 0) / scores.length);
+        if (avg >= 60) studentsPassed++;
+        const enrollment = (enrollments || []).find((e: any) => e.student_id === sid);
+        studentScoreList.push({
+          student_id: sid,
+          student_name: (enrollment as any)?.profiles?.full_name || 'Student',
+          score: avg,
+        });
+      }
+      studentScoreList.sort((a, b) => b.score - a.score);
     }
+
+    const status = hasData ? 'completed' : (i === completedSessionCount ? 'in_progress' : 'upcoming');
+    if (hasData) completedSessionCount++;
 
     return {
       session_number: sessionNum,
@@ -339,11 +382,22 @@ router.get('/sessions', requireRole('teacher'), async (req: Request, res: Respon
       gate_short_title: gate?.short_title || '',
       status,
       avg_quiz_score: avgScore,
-      students_attempted: gate ? (gateAttemptStats.get(gate.id)?.attempted || 0) : 0,
-      students_passed: gate ? (gateAttemptStats.get(gate.id)?.passed || 0) : 0,
-      student_scores: [],
+      students_attempted: studentsAttempted,
+      students_passed: studentsPassed,
+      student_scores: studentScoreList,
     };
   });
+
+  // Recompute current session (first non-completed)
+  const currentSession = Math.min(
+    (sessionData.findIndex(s => s.status !== 'completed') + 1) || sessionData.length + 1,
+    totalSessions
+  );
+  // Mark the current session
+  const currentIdx = sessionData.findIndex(s => s.status === 'in_progress');
+  if (currentIdx < 0 && completedSessionCount < sessionData.length) {
+    sessionData[completedSessionCount].status = 'in_progress';
+  }
 
   // Fill up to totalSessions if needed
   while (sessionData.length < totalSessions) {
@@ -357,38 +411,63 @@ router.get('/sessions', requireRole('teacher'), async (req: Request, res: Respon
     });
   }
 
-  // Gate status
-  const gatesStatus = (gates || []).map((g: any) => {
-    const gateSessions = sessionData.filter(s => s.gate_id === g.id);
-    const completedSessions = gateSessions.filter(s => s.status === 'completed').length;
-    const inProgressSessions = gateSessions.filter(s => s.status === 'in_progress').length;
-    const prereqsForGate = (prereqs || []).filter((p: any) => p.gate_id === g.id);
-    const prereqsMet = prereqsForGate.every((p: any) => {
-      const prereqGateSessions = sessionData.filter(s => {
-        const pg = (gates || []).find((gg: any) => gg.id === p.prerequisite_gate_id);
-        return pg && s.gate_id === pg.id;
-      });
-      return prereqGateSessions.length > 0 && prereqGateSessions.every(s => s.status === 'completed');
-    });
+  // Gate status — derived from real session completion + actual question data
+  const questionsPerGate = new Map<string, number>();
+  for (const q of (allQuestions || [])) {
+    questionsPerGate.set(q.gate_id, (questionsPerGate.get(q.gate_id) || 0) + 1);
+  }
 
-    let status = 'locked';
-    if (completedSessions >= gateSessions.length && gateSessions.length > 0) status = 'completed';
-    else if (inProgressSessions > 0 || completedSessions > 0) status = 'in_progress';
-    else if (prereqsMet || prereqsForGate.length === 0) status = 'unlocked';
+  const gatesStatus = (gates || []).map((g: any) => {
+    const gateQuestionCount = questionsPerGate.get(g.id) || 0;
+    const gateSessions = sessionData.filter(s => s.gate_id === g.id);
+    const completedGateSessions = gateSessions.filter(s => s.status === 'completed').length;
+    const inProgressGateSessions = gateSessions.filter(s => s.status === 'in_progress').length;
+
+    // Gate with 0 questions = no content generated = upcoming (not completed)
+    let status = 'upcoming';
+    if (gateQuestionCount === 0 || gateSessions.length === 0) {
+      status = 'upcoming';
+    } else if (completedGateSessions >= gateSessions.length) {
+      status = 'completed';
+    } else if (inProgressGateSessions > 0 || completedGateSessions > 0) {
+      status = 'in_progress';
+    }
+
+    const gateAvg = gateSessions.filter(s => s.avg_quiz_score > 0).length > 0
+      ? Math.round(gateSessions.filter(s => s.avg_quiz_score > 0).reduce((a, s) => a + s.avg_quiz_score, 0) / gateSessions.filter(s => s.avg_quiz_score > 0).length)
+      : 0;
 
     return {
       gate_id: g.id, gate_number: g.gate_number, short_title: g.short_title,
       title: g.title, color: g.color, light_color: g.light_color,
-      status, sessions_in_gate: gateSessions.length, completed_sessions: completedSessions,
+      status, sessions_in_gate: gateSessions.length, completed_sessions: completedGateSessions,
+      avg_score: gateAvg,
     };
   });
 
-  const avgMastery = sessionData.filter(s => s.status === 'completed' && s.avg_quiz_score > 0).length > 0
-    ? Math.round(sessionData.filter(s => s.status === 'completed').reduce((a, s) => a + s.avg_quiz_score, 0) / sessionData.filter(s => s.status === 'completed').length)
+  // ─── REAL course_stats from actual data ───
+  const completedSessions = sessionData.filter(s => s.status === 'completed');
+  const realAvgMastery = completedSessions.length > 0
+    ? Math.round(completedSessions.reduce((a, s) => a + s.avg_quiz_score, 0) / completedSessions.length)
     : 0;
 
-  const progressData = progress || [];
-  const atRiskCount = new Set(progressData.filter(p => p.mastery_pct > 0 && p.mastery_pct < AT_RISK_THRESHOLD).map(p => p.student_id)).size;
+  // Real quiz count: unique student × question_id attempts
+  const totalQuizzesCompleted = allAttempts?.length || 0;
+  const totalQuizzesPossible = (allQuestions?.length || 0) * studentCount;
+
+  // Students on track vs at risk from actual averages
+  const studentAvgMap = new Map<string, number[]>();
+  for (const a of (allAttempts || [])) {
+    if (!studentAvgMap.has(a.student_id)) studentAvgMap.set(a.student_id, []);
+    studentAvgMap.get(a.student_id)!.push(a.score);
+  }
+  let studentsOnTrack = 0;
+  let studentsAtRisk = 0;
+  for (const [, scores] of studentAvgMap) {
+    const avg = scores.reduce((a, v) => a + v, 0) / scores.length;
+    if (avg >= MASTERY_THRESHOLD) studentsOnTrack++;
+    else if (avg < AT_RISK_THRESHOLD) studentsAtRisk++;
+  }
 
   res.json({
     current_session: currentSession,
@@ -398,11 +477,11 @@ router.get('/sessions', requireRole('teacher'), async (req: Request, res: Respon
     gates_status: gatesStatus,
     course_stats: {
       overall_completion_pct: totalSessions > 0 ? Math.round((completedSessionCount / totalSessions) * 100) : 0,
-      avg_mastery: avgMastery,
-      total_quizzes_completed: completedSessionCount * studentCount,
-      total_quizzes_possible: totalSessions * studentCount,
-      students_on_track: Math.max(0, studentCount - atRiskCount),
-      students_at_risk: atRiskCount,
+      avg_mastery: realAvgMastery,
+      total_quizzes_completed: totalQuizzesCompleted,
+      total_quizzes_possible: totalQuizzesPossible,
+      students_on_track: studentsOnTrack,
+      students_at_risk: studentsAtRisk,
     },
   });
 });
@@ -426,10 +505,10 @@ router.get('/lesson/:lessonId', requireRole('teacher'), async (req: Request, res
   const { data: lesson } = await supabaseAdmin.from('lessons').select('*, gate_id').eq('id', lessonId).single();
   if (!lesson) { res.json({ analysis: null }); return; }
 
-  // Get questions for this lesson (same distribution logic as lesson.routes.ts)
+  // Get questions for this lesson — distribute evenly across Bloom levels per lesson
   const { data: allGateQuestions } = await supabaseAdmin
     .from('questions').select('*').eq('gate_id', lesson.gate_id).eq('course_id', courseId)
-    .order('bloom_level').order('difficulty');
+    .order('difficulty');
   const { data: gateLessons } = await supabaseAdmin
     .from('lessons').select('id, lesson_number').eq('gate_id', lesson.gate_id).eq('course_id', courseId)
     .order('lesson_number');
@@ -438,8 +517,9 @@ router.get('/lesson/:lessonId', requireRole('teacher'), async (req: Request, res
   if (gateLessons && gateLessons.length > 0 && questions.length > 0) {
     const idx = gateLessons.findIndex(l => l.id === lessonId);
     if (idx >= 0) {
-      const perLesson = Math.ceil(questions.length / gateLessons.length);
-      questions = questions.slice(idx * perLesson, (idx + 1) * perLesson);
+      // Round-robin distribute questions across lessons so each gets a mix of Bloom levels
+      const lessonCount = gateLessons.length;
+      questions = questions.filter((_: any, qi: number) => qi % lessonCount === idx);
     }
   }
 
@@ -447,11 +527,12 @@ router.get('/lesson/:lessonId', requireRole('teacher'), async (req: Request, res
 
   const questionIds = questions.map(q => q.id);
 
-  // Get all attempts for these questions
+  // Get all attempts for these questions (limit raised from default 1000)
   const { data: attempts } = await supabaseAdmin
     .from('question_attempts')
     .select('*, profiles:student_id(full_name)')
-    .in('question_id', questionIds);
+    .in('question_id', questionIds)
+    .limit(10000);
 
   if (!attempts || attempts.length === 0) { res.json({ analysis: null }); return; }
 
@@ -564,45 +645,57 @@ router.get('/class-trajectory', requireRole('teacher'), async (req: Request, res
     .from('gates').select('id, gate_number, short_title, color')
     .eq('course_id', courseId).order('sort_order');
 
-  const { data: allAttempts } = await supabaseAdmin
-    .from('question_attempts').select('student_id, question_id, gate_id, score, is_correct')
-    .in('gate_id', (gates || []).map(g => g.id));
+  // Fetch attempts per gate to avoid Supabase 1000-row limit
+  let allAttemptsTraj: { student_id: string; question_id: string; gate_id: string; score: number; is_correct: boolean }[] = [];
+  for (const g of (gates || [])) {
+    const { data } = await supabaseAdmin
+      .from('question_attempts').select('student_id, question_id, gate_id, score, is_correct')
+      .eq('gate_id', g.id).limit(10000);
+    if (data) allAttemptsTraj.push(...data);
+  }
 
   const { data: questions } = await supabaseAdmin
     .from('questions').select('id, gate_id')
-    .eq('course_id', courseId);
+    .eq('course_id', courseId)
+    .order('difficulty').limit(5000);
 
   const { data: enrollments } = await supabaseAdmin
     .from('enrollments').select('student_id, profiles:student_id(full_name)')
     .eq('course_id', courseId);
 
-  if (!lessons || !allAttempts || !questions || !enrollments) {
-    res.json({ trajectory: [] });
+  if (!lessons || !questions || !enrollments) {
+    res.json({ trajectory: [], students: [] });
     return;
   }
+  const safeAttempts = allAttemptsTraj;
 
   // Map question → gate
   const qGateMap = new Map(questions.map(q => [q.id, q.gate_id]));
 
   // For each lesson, compute class avg and per-student scores
-  const trajectory = (lessons || []).map(l => {
-    // Get questions for this lesson (same distribution logic)
+  // Only include lessons whose gate has questions (skip empty gates like G3, G8)
+  const gatesWithQuestions = new Set(questions.map(q => q.gate_id));
+  const activeLessons = (lessons || []).filter(l => gatesWithQuestions.has(l.gate_id));
+
+  const trajectory = activeLessons.map(l => {
     const gateQuestions = questions.filter(q => q.gate_id === l.gate_id);
-    const gateLessonsForGate = (lessons || []).filter(ll => ll.gate_id === l.gate_id);
+    const gateLessonsForGate = activeLessons.filter(ll => ll.gate_id === l.gate_id);
     const idx = gateLessonsForGate.findIndex(ll => ll.id === l.id);
-    const perLesson = gateLessonsForGate.length > 0 ? Math.ceil(gateQuestions.length / gateLessonsForGate.length) : gateQuestions.length;
-    const lessonQuestionIds = new Set(gateQuestions.slice(idx * perLesson, (idx + 1) * perLesson).map(q => q.id));
+    const lessonCount = gateLessonsForGate.length || 1;
+    const lessonQuestionIds = new Set(gateQuestions.filter((_: any, qi: number) => qi % lessonCount === idx).map(q => q.id));
 
-    const lessonAttempts = allAttempts.filter(a => lessonQuestionIds.has(a.question_id));
+    const lessonAttempts = safeAttempts.filter(a => lessonQuestionIds.has(a.question_id));
 
-    // Per-student scores
+    // Per-student scores — only include students who actually have attempts
     const studentScores: Record<string, number> = {};
     for (const e of enrollments) {
       const sa = lessonAttempts.filter(a => a.student_id === e.student_id);
-      studentScores[e.student_id] = sa.length > 0 ? Math.round(sa.reduce((s, a) => s + a.score, 0) / sa.length) : 0;
+      if (sa.length > 0) {
+        studentScores[e.student_id] = Math.round(sa.reduce((s, a) => s + a.score, 0) / sa.length);
+      }
     }
 
-    const scores = Object.values(studentScores).filter(s => s > 0);
+    const scores = Object.values(studentScores);
     const classAvg = scores.length > 0 ? Math.round(scores.reduce((s, v) => s + v, 0) / scores.length) : 0;
     const gate = (gates || []).find(g => g.id === l.gate_id);
 
@@ -618,13 +711,17 @@ router.get('/class-trajectory', requireRole('teacher'), async (req: Request, res
     };
   });
 
-  // Student sparklines
-  const students = enrollments.map(e => ({
-    id: e.student_id,
-    name: (e as any).profiles?.full_name || 'Unknown',
-    scores: trajectory.map(t => t.student_scores[e.student_id] || 0),
-    average: Math.round(trajectory.reduce((s, t) => s + (t.student_scores[e.student_id] || 0), 0) / Math.max(1, trajectory.length)),
-  }));
+  // Student sparklines — only count lessons where this student has data
+  const students = enrollments.map(e => {
+    const myScores = trajectory.map(t => t.student_scores[e.student_id] || 0);
+    const nonZero = myScores.filter(s => s > 0);
+    return {
+      id: e.student_id,
+      name: (e as any).profiles?.full_name || 'Unknown',
+      scores: myScores,
+      average: nonZero.length > 0 ? Math.round(nonZero.reduce((s, v) => s + v, 0) / nonZero.length) : 0,
+    };
+  });
 
   // Rank movement (compare last 5 lessons vs previous 5)
   const rankedStudents = students.map(s => {

@@ -12,9 +12,13 @@ const LABELS = ['Remember', 'Understand', 'Apply', 'Analyze', 'Evaluate', 'Creat
 
 export function BloomRadar({ data, color = '#2E75B6', size = 200, thresholds }: Props) {
   const t = thresholds || BLOOM_LEVEL_THRESHOLDS;
-  const cx = size / 2;
-  const cy = size / 2;
-  const r = size * 0.38;
+  // Add padding so labels don't get clipped
+  const pad = 35;
+  const innerSize = size;
+  const totalSize = innerSize + pad * 2;
+  const cx = totalSize / 2;
+  const cy = totalSize / 2;
+  const r = innerSize * 0.32;
 
   const pt = (i: number, radius: number) => {
     const angle = (Math.PI * 2 * i) / 6 - Math.PI / 2;
@@ -48,7 +52,7 @@ export function BloomRadar({ data, color = '#2E75B6', size = 200, thresholds }: 
 
   return (
     <div className="relative">
-      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} onMouseLeave={() => setHover(null)}>
+      <svg width={size} height={size} viewBox={`0 0 ${totalSize} ${totalSize}`} onMouseLeave={() => setHover(null)}>
         {/* Grid */}
         {gridLevels.map(level => (
           <polygon
@@ -101,15 +105,16 @@ export function BloomRadar({ data, color = '#2E75B6', size = 200, thresholds }: 
         })}
         {/* Labels with threshold */}
         {LABELS.map((label, i) => {
-          const [x, y] = pt(i, r + 22);
+          const [x, y] = pt(i, r + 28);
           const req = t[label.toLowerCase()] || 0;
+          const score = data[label] || data[label.toLowerCase()] || 0;
           return (
             <g key={i}>
-              <text x={x} y={y - 5} textAnchor="middle" dominantBaseline="middle" fontSize="9" fill="#6B7280">
+              <text x={x} y={y - 5} textAnchor="middle" dominantBaseline="middle" fontSize="10" fontWeight="600" fill="#374151">
                 {label}
               </text>
-              <text x={x} y={y + 6} textAnchor="middle" dominantBaseline="middle" fontSize="7" fill="#9CA3AF">
-                min {req}%
+              <text x={x} y={y + 7} textAnchor="middle" dominantBaseline="middle" fontSize="8" fill="#9CA3AF">
+                {score}% / {req}%
               </text>
             </g>
           );

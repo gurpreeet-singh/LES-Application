@@ -1,7 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { LLMProvider } from './llm/provider.js';
 import { LLM_TIERS } from './llm/provider.js';
-import { SYSTEM_PROMPT, GATE_COLORS } from '@leap/shared';
+import { SYSTEM_PROMPT, GATE_COLORS, getClassLevelDirective } from '@leap/shared';
 import { parseLLMOutput } from './llm/parser.js';
 import type { DeconstructionOutput } from '@leap/shared';
 
@@ -75,10 +75,13 @@ function buildPhase2GatePrompt(
   lessonCount: number,
   startLessonNumber: number,
   sessionDuration: number,
+  classLevel?: string,
 ) {
   const lessonNumbers = Array.from({ length: lessonCount }, (_, i) => startLessonNumber + i);
+  const classDirective = getClassLevelDirective(classLevel);
 
   return `Generate detailed lessons and Socratic teaching scripts for this single knowledge gate.
+${classDirective}
 
 GATE ${gate.number}: ${gate.title}
 Sub-concepts: ${gate.sub_concepts.join(', ')}
@@ -148,9 +151,11 @@ export class DeconstructionService {
     onProgress?: (step: number, name: string, status: string) => void,
     totalSessions?: number,
     sessionDuration?: number,
+    classLevel?: string,
   ): Promise<void> {
     const sessions = totalSessions || 20;
     const duration = sessionDuration || 40;
+    const classDirective = getClassLevelDirective(classLevel);
 
     // === PHASE 1: Structure (steps 1-5, 9-10) ===
     let timetableNote = '';
@@ -158,7 +163,7 @@ export class DeconstructionService {
       timetableNote = `\nThe course has ${sessions} sessions of ${duration} minutes each. Design ${Math.min(8, Math.ceil(sessions / 3))} gates maximum, distributed to fill ${sessions} lessons total.`;
     }
 
-    const phase1System = SYSTEM_PROMPT + timetableNote + '\n\nPerform steps 1-5, 9, and 10 ONLY. Do NOT generate lessons or scripts yet.\n' + PHASE1_OUTPUT;
+    const phase1System = SYSTEM_PROMPT + classDirective + timetableNote + '\n\nPerform steps 1-5, 9, and 10 ONLY. Do NOT generate lessons or scripts yet.\n' + PHASE1_OUTPUT;
 
     let phase1Raw: string;
     try {
@@ -192,14 +197,14 @@ export class DeconstructionService {
       const startLesson = nextLessonNumber;
       nextLessonNumber += lessonCount;
 
-      const gatePrompt = buildPhase2GatePrompt(gate, lessonCount, startLesson, duration);
+      const gatePrompt = buildPhase2GatePrompt(gate, lessonCount, startLesson, duration, classLevel);
 
       let gateRaw: string;
       try {
         gateRaw = await this.llm.complete({
-          systemPrompt: SYSTEM_PROMPT + '\n\nGenerate detailed lessons and Socratic teaching scripts for the specified gate.\n',
+          systemPrompt: SYSTEM_PROMPT + classDirective + '\n\nGenerate detailed lessons and Socratic teaching scripts for the specified gate.\n',
           userMessage: gatePrompt,
-          maxTokens: 8000,
+          maxTokens: 16000,
           temperature: 0.3,
           model: LLM_TIERS.FAST, // Tier 2: Structured lesson generation — Haiku is sufficient
         });
