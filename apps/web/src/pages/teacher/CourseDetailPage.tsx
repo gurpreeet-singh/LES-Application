@@ -7,8 +7,10 @@ import { GateDependencyGraph } from '../../components/shared/GateDependencyGraph
 import { JourneySteps } from '../../components/shared/JourneySteps';
 import { SkeletonPage } from '../../components/shared/LoadingSkeleton';
 import type { Course, Gate, Lesson, Question, SubConcept } from '@leap/shared';
+import { getDIKWLevelByPosition } from '@leap/shared';
+import { DIKWBadgeFromBloom, DIKWBadge } from '../../components/shared/DIKWBadge';
 
-type Tab = 'overview' | 'syllabus' | 'kg' | 'lessons' | 'scripts' | 'questions' | 'timetable' | 'settings';
+type Tab = 'overview' | 'students_tab' | 'syllabus' | 'kg' | 'lessons' | 'scripts' | 'questions' | 'timetable' | 'settings';
 
 interface SessionPlan {
   id: string;
@@ -36,6 +38,11 @@ export function CourseDetailPage() {
   const [expandedQuestion, setExpandedQuestion] = useState<string | null>(null);
   const [showSyllabus, setShowSyllabus] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [studentProfiles, setStudentProfiles] = useState<any[]>([]);
+  const [selectedStudentProfile, setSelectedStudentProfile] = useState<any>(null);
+  const [profileFilter, setProfileFilter] = useState<string>('all');
+  const [genFeedback, setGenFeedback] = useState('');
+  const [generating, setGenerating] = useState(false);
 
   useEffect(() => {
     Promise.all([
@@ -85,12 +92,14 @@ export function CourseDetailPage() {
   const statusColors: Record<string, string> = {
     draft: 'bg-gray-100 text-gray-700',
     processing: 'bg-yellow-100 text-yellow-800',
+    structure_ready: 'bg-purple-100 text-purple-800',
     review: 'bg-blue-100 text-blue-800',
     active: 'bg-green-100 text-green-800',
   };
 
   const tabs: { key: Tab; label: string; count?: number; hidden?: boolean }[] = [
     { key: 'overview', label: 'Overview' },
+    { key: 'students_tab', label: 'Students' },
     { key: 'syllabus', label: 'Syllabus & Objectives', hidden: gates.length === 0 && (!course.syllabus_text || course.syllabus_text.length < 200) },
     { key: 'kg', label: 'Knowledge Graph', count: gates.length },
     { key: 'lessons', label: 'Lessons', count: lessons.length },
@@ -120,6 +129,9 @@ export function CourseDetailPage() {
             {course.status === 'draft' && (
               <Link to={`/teacher/courses/${courseId}/upload`} className="btn-primary">Upload Syllabus</Link>
             )}
+            {course.status === 'structure_ready' && (
+              <Link to={`/teacher/courses/${courseId}/review`} className="btn-primary">Review Structure & Start</Link>
+            )}
             {course.status === 'review' && (
               <Link to={`/teacher/courses/${courseId}/review`} className="btn-primary">Review & Finalize</Link>
             )}
@@ -147,6 +159,96 @@ export function CourseDetailPage() {
       {tab === 'overview' && (
         <div className="fade-in grid grid-cols-3 gap-5">
           <div className="col-span-2 space-y-5">
+            {/* Progressive Generation Card */}
+            {['structure_ready', 'active'].includes(course.status) && (() => {
+              const currentSession = lessons.length;
+              const total = course.total_sessions || 30;
+              return (
+                <div className="card p-5 border-2 border-leap-navy/20 bg-gradient-to-r from-leap-navy/5 to-blue-50">
+                  <div className="flex items-center gap-3 mb-3">
+                    <div className="w-10 h-10 rounded-xl bg-leap-navy flex items-center justify-center text-white text-lg">🔄</div>
+                    <div>
+                      <h3 className="text-sm font-black text-gray-900">Progressive Session Generation</h3>
+                      <p className="text-[11px] text-gray-500">Each session adapts to the previous session's student outcomes</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3 mb-3">
+                    <div className="flex-1 bg-gray-200 rounded-full h-2.5 overflow-hidden">
+                      <div className="h-full bg-leap-navy rounded-full transition-all" style={{ width: `${(currentSession / total) * 100}%` }} />
+                    </div>
+                    <span className="text-sm font-black text-leap-navy">{currentSession}/{total}</span>
+                  </div>
+                  {currentSession < total && (
+                    <>
+                      <textarea
+                        value={genFeedback}
+                        onChange={e => setGenFeedback(e.target.value)}
+                        placeholder="Notes for the next session (optional) — e.g., 'Students struggled with negative fractions, focus more on number line visualization'"
+                        className="w-full text-[12px] px-3 py-2 rounded-xl border border-gray-200 focus:outline-none focus:border-leap-navy mb-3 resize-none"
+                        rows={2}
+                      />
+                      <div className="flex gap-2">
+                        <button
+                          onClick={async () => {
+                            setGenerating(true);
+                            try {
+                              // Use direct Railway URL to avoid Netlify proxy timeout
+                              const directUrl = (import.meta as any).env?.VITE_DIRECT_API_URL || (import.meta as any).env?.VITE_API_URL || '/api/v1';
+                              const stored = localStorage.getItem('les_demo_session');
+                              const token = stored ? JSON.parse(stored)?.session?.access_token : '';
+                              const res = await fetch(`${directUrl}/courses/${courseId}/generate-next-session`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                                body: JSON.stringify({ teacher_feedback: genFeedback || undefined }),
+                              });
+                              if (!res.ok) {
+                                const err = await res.json();
+                                throw new Error(err.error || 'Generation failed');
+                              }
+                              const result = await res.json();
+                              setGenFeedback('');
+                              alert(`Session ${result.session_number} generated: "${result.lesson?.title}"`);
+                              window.location.reload();
+                            } catch (err: any) {
+                              alert(err.message || 'Generation failed');
+                            }
+                            setGenerating(false);
+                          }}
+                          disabled={generating}
+                          className="btn-primary text-[12px] py-2 px-4"
+                        >
+                          {generating ? '🤖 Generating...' : `Generate Session ${currentSession + 1}`}
+                        </button>
+                        <button
+                          onClick={async () => {
+                            if (!confirm(`Generate all ${total - currentSession} remaining sessions in batch? Each session will build on the previous one's structure.`)) return;
+                            setGenerating(true);
+                            const directUrl2 = (import.meta as any).env?.VITE_DIRECT_API_URL || '/api/v1';
+                            const stored2 = localStorage.getItem('les_demo_session');
+                            const token2 = stored2 ? JSON.parse(stored2)?.session?.access_token : '';
+                            await fetch(`${directUrl2}/courses/${courseId}/generate-all-remaining`, {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token2}` },
+                              body: JSON.stringify({ teacher_feedback: genFeedback || undefined }),
+                            });
+                            alert('Generating all remaining sessions in background. Refresh the page in a few minutes.');
+                            setGenerating(false);
+                          }}
+                          disabled={generating}
+                          className="btn-secondary text-[12px] py-2 px-4"
+                        >
+                          Generate All Remaining ({total - currentSession})
+                        </button>
+                      </div>
+                    </>
+                  )}
+                  {currentSession >= total && (
+                    <p className="text-sm text-green-700 font-bold">All {total} sessions generated!</p>
+                  )}
+                </div>
+              );
+            })()}
+
             {/* Stats */}
             <div className="grid grid-cols-4 gap-3">
               {[
@@ -161,6 +263,38 @@ export function CourseDetailPage() {
                 </div>
               ))}
             </div>
+
+            {/* DIKW Progression */}
+            {lessons.length > 0 && (() => {
+              const dikwCounts: Record<string, number> = { Data: 0, Information: 0, Knowledge: 0, Wisdom: 0 };
+              const totalL = lessons.length;
+              lessons.forEach(l => {
+                const level = getDIKWLevelByPosition(l.lesson_number, totalL);
+                const label = { data: 'Data', information: 'Information', knowledge: 'Knowledge', wisdom: 'Wisdom' }[level];
+                dikwCounts[label]++;
+              });
+              const colors: Record<string, string> = { Data: '#3B82F6', Information: '#10B981', Knowledge: '#F59E0B', Wisdom: '#8B5CF6' };
+              const total = lessons.length;
+              return (
+                <div className="card p-5">
+                  <h3 className="section-header mb-3">Learning Progression (DIKW)</h3>
+                  <div className="flex rounded-full overflow-hidden h-3 mb-2">
+                    {Object.entries(dikwCounts).filter(([, c]) => c > 0).map(([level, count]) => (
+                      <div key={level} className="h-full" style={{ width: `${(count / total) * 100}%`, background: colors[level] }} title={`${level}: ${count} lessons`} />
+                    ))}
+                  </div>
+                  <div className="flex gap-3 text-[10px]">
+                    {Object.entries(dikwCounts).map(([level, count]) => (
+                      <span key={level} className="flex items-center gap-1">
+                        <span className="w-2 h-2 rounded-full" style={{ background: colors[level] }} />
+                        <span className="font-bold" style={{ color: colors[level] }}>{level}</span>
+                        <span className="text-gray-400">{count} lessons</span>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* Syllabus Preview */}
             {course.syllabus_text && (
@@ -280,6 +414,41 @@ export function CourseDetailPage() {
                   </div>
                 </div>
               )}
+              {/* DIKW Course Progression */}
+              {lessons.length > 0 && (() => {
+                const dikwMap: Record<string, string> = { remember: 'Data', understand: 'Information', apply: 'Knowledge', analyze: 'Knowledge', evaluate: 'Wisdom', create: 'Wisdom' };
+                const dikwCounts: Record<string, number> = { Data: 0, Information: 0, Knowledge: 0, Wisdom: 0 };
+                lessons.forEach(l => {
+                  let highest = 'Data';
+                  const order = ['Data', 'Information', 'Knowledge', 'Wisdom'];
+                  (l.bloom_levels || []).forEach(bl => {
+                    const mapped = dikwMap[bl.toLowerCase()];
+                    if (mapped && order.indexOf(mapped) > order.indexOf(highest)) highest = mapped;
+                  });
+                  dikwCounts[highest]++;
+                });
+                const colors: Record<string, string> = { Data: '#3B82F6', Information: '#10B981', Knowledge: '#F59E0B', Wisdom: '#8B5CF6' };
+                const total = lessons.length;
+                return (
+                  <div className="mt-4 pt-4 border-t border-gray-100">
+                    <p className="text-[11px] text-gray-400 mb-2">DIKW Learning Progression</p>
+                    <div className="flex rounded-full overflow-hidden h-4 mb-2">
+                      {Object.entries(dikwCounts).filter(([, c]) => c > 0).map(([level, count]) => (
+                        <div key={level} className="h-full transition-all" style={{ width: `${(count / total) * 100}%`, background: colors[level] }} title={`${level}: ${count} lessons`} />
+                      ))}
+                    </div>
+                    <div className="flex gap-3 text-[9px]">
+                      {Object.entries(dikwCounts).filter(([, c]) => c > 0).map(([level, count]) => (
+                        <span key={level} className="flex items-center gap-1">
+                          <span className="w-2 h-2 rounded-full" style={{ background: colors[level] }} />
+                          <span className="font-bold" style={{ color: colors[level] }}>{level}</span>
+                          <span className="text-gray-400">{count}</span>
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
           )}
 
@@ -333,6 +502,7 @@ export function CourseDetailPage() {
                           {l.bloom_levels && l.bloom_levels.length > 0 && (
                             <div className="flex gap-1 mt-1.5">
                               {l.bloom_levels.map(bl => <BloomBadge key={bl} level={bl} />)}
+                              <DIKWBadgeFromBloom bloomLevels={l.bloom_levels} />
                             </div>
                           )}
                         </div>
@@ -623,6 +793,189 @@ export function CourseDetailPage() {
                   </div>
                 );
               })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Students Tab */}
+      {tab === 'students_tab' && (
+        <div className="fade-in">
+          {/* Load profiles on tab open */}
+          {studentProfiles.length === 0 && (() => {
+            api.get<any>(`/courses/${courseId}/diagnostic/status`).then(d => {
+              setStudentProfiles(d.students || []);
+            }).catch(() => {});
+            return <div className="text-center py-8 text-gray-400">Loading student profiles...</div>;
+          })()}
+
+          {studentProfiles.length > 0 && (
+            <div className="grid grid-cols-1 lg:grid-cols-5 gap-5">
+              {/* Left: Student roster */}
+              <div className="lg:col-span-3">
+                {/* Filters */}
+                <div className="flex gap-2 mb-4 flex-wrap">
+                  {['all', 'competent', 'deep', 'surface', 'struggling', 'not_assessed'].map(f => (
+                    <button key={f} onClick={() => setProfileFilter(f)}
+                      className={`text-[10px] font-bold px-3 py-1.5 rounded-lg transition-all ${profileFilter === f ? 'bg-leap-navy text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+                      {f === 'all' ? `All (${studentProfiles.length})` : f === 'not_assessed' ? `Not Assessed (${studentProfiles.filter(s => s.strategy_profile === 'not_assessed').length})` : `${f.charAt(0).toUpperCase() + f.slice(1)} (${studentProfiles.filter(s => s.strategy_profile === f).length})`}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Student table */}
+                <div className="card p-4">
+                  <div className="overflow-auto" style={{ maxHeight: '60vh' }}>
+                    <table className="w-full text-sm" style={{ borderCollapse: 'separate', borderSpacing: '0 2px' }}>
+                      <thead className="sticky top-0 bg-gray-50 z-10">
+                        <tr>
+                          <th className="text-left py-2 pl-3 text-[10px] text-gray-400 font-medium rounded-l-lg">Student</th>
+                          <th className="text-center py-2 text-[10px] text-gray-400 font-medium">Profile</th>
+                          <th className="text-center py-2 text-[10px] text-gray-400 font-medium">Bloom</th>
+                          <th className="text-center py-2 text-[10px] text-gray-400 font-medium">Prior Knowledge</th>
+                          <th className="text-center py-2 text-[10px] text-gray-400 font-medium rounded-r-lg">Diagnostic</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {studentProfiles
+                          .filter(s => profileFilter === 'all' || s.strategy_profile === profileFilter)
+                          .map(s => {
+                            const strategyColors: Record<string, { bg: string; text: string }> = {
+                              competent: { bg: '#D1FAE5', text: '#059669' },
+                              deep: { bg: '#DBEAFE', text: '#2563EB' },
+                              surface: { bg: '#FEF3C7', text: '#F59E0B' },
+                              struggling: { bg: '#FEE2E2', text: '#DC2626' },
+                              not_assessed: { bg: '#F3F4F6', text: '#9CA3AF' },
+                            };
+                            const sc = strategyColors[s.strategy_profile] || strategyColors.not_assessed;
+                            const isSelected = selectedStudentProfile?.student_id === s.student_id;
+                            return (
+                              <tr key={s.student_id}
+                                onClick={() => setSelectedStudentProfile(s)}
+                                className={`cursor-pointer transition-all ${isSelected ? 'bg-blue-50' : 'hover:bg-gray-50'}`}>
+                                <td className="py-2 pl-3">
+                                  <div className="flex items-center gap-2">
+                                    <div className={`w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold ${isSelected ? 'bg-leap-navy text-white' : 'bg-gray-100 text-gray-500'}`}>
+                                      {s.name.charAt(0)}
+                                    </div>
+                                    <div>
+                                      <p className="text-[12px] font-medium text-gray-900">{s.name}</p>
+                                      <p className="text-[9px] text-gray-400">{s.email}</p>
+                                    </div>
+                                  </div>
+                                </td>
+                                <td className="text-center py-2">
+                                  <span className="text-[9px] font-bold px-2 py-0.5 rounded-full" style={{ background: sc.bg, color: sc.text }}>
+                                    {s.strategy_profile === 'not_assessed' ? 'Pending' : s.strategy_profile}
+                                  </span>
+                                </td>
+                                <td className="text-center py-2">
+                                  <span className="text-[10px] font-bold text-gray-600">{s.bloom_ceiling || '—'}</span>
+                                </td>
+                                <td className="text-center py-2">
+                                  <span className="text-[10px] font-bold text-gray-600">{s.prior_knowledge_score > 0 ? `${s.prior_knowledge_score}%` : '—'}</span>
+                                </td>
+                                <td className="text-center py-2">
+                                  <span className={`text-[9px] font-bold ${s.diagnostic_completed ? 'text-green-600' : 'text-gray-400'}`}>
+                                    {s.diagnostic_completed ? '✓ Done' : 'Pending'}
+                                  </span>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+
+              {/* Right: Selected student profile */}
+              <div className="lg:col-span-2 lg:sticky lg:top-4 lg:self-start" style={{ maxHeight: '85vh', overflowY: 'auto' }}>
+                <div className="card p-4">
+                  {!selectedStudentProfile ? (
+                    <div className="text-center py-8">
+                      <p className="text-3xl mb-2">👈</p>
+                      <p className="text-[12px] text-gray-500">Select a student to view their full profile</p>
+                    </div>
+                  ) : (() => {
+                    const s = selectedStudentProfile;
+                    const strategyColors: Record<string, { bg: string; text: string }> = {
+                      competent: { bg: '#D1FAE5', text: '#059669' },
+                      deep: { bg: '#DBEAFE', text: '#2563EB' },
+                      surface: { bg: '#FEF3C7', text: '#F59E0B' },
+                      struggling: { bg: '#FEE2E2', text: '#DC2626' },
+                      not_assessed: { bg: '#F3F4F6', text: '#9CA3AF' },
+                    };
+                    const sc = strategyColors[s.strategy_profile] || strategyColors.not_assessed;
+                    return (
+                      <div>
+                        <div className="flex items-center gap-3 mb-4">
+                          <div className="w-10 h-10 rounded-full bg-leap-navy text-white flex items-center justify-center text-sm font-bold">{s.name.charAt(0)}</div>
+                          <div className="flex-1">
+                            <h3 className="text-sm font-black text-gray-900">{s.name}</h3>
+                            <p className="text-[10px] text-gray-400">{s.email}</p>
+                          </div>
+                          <span className="text-[10px] font-bold px-2.5 py-1 rounded-full" style={{ background: sc.bg, color: sc.text }}>
+                            {s.strategy_profile === 'not_assessed' ? 'Not Assessed' : s.strategy_profile.charAt(0).toUpperCase() + s.strategy_profile.slice(1)}
+                          </span>
+                        </div>
+
+                        {/* Quick stats */}
+                        <div className="grid grid-cols-3 gap-2 mb-4">
+                          <div className="bg-gray-50 rounded-lg p-2 text-center">
+                            <p className="text-base font-black text-leap-blue">{s.prior_knowledge_score || 0}%</p>
+                            <p className="text-[8px] text-gray-400">Prior Knowledge</p>
+                          </div>
+                          <div className="bg-gray-50 rounded-lg p-2 text-center">
+                            <p className="text-base font-black text-leap-purple">{s.bloom_ceiling || '—'}</p>
+                            <p className="text-[8px] text-gray-400">Bloom Ceiling</p>
+                          </div>
+                          <div className="bg-gray-50 rounded-lg p-2 text-center">
+                            <p className="text-base font-black text-green-600">{s.diagnostic_completed ? '✓' : '—'}</p>
+                            <p className="text-[8px] text-gray-400">Diagnostic</p>
+                          </div>
+                        </div>
+
+                        {/* Learning Style Radar */}
+                        {s.learning_dimensions && (
+                          <div className="mb-4">
+                            <p className="text-[9px] font-bold text-gray-400 uppercase mb-2">Learning Style</p>
+                            <div className="space-y-1.5">
+                              {Object.entries(s.learning_dimensions).map(([dim, val]) => (
+                                <div key={dim} className="flex items-center gap-2">
+                                  <span className="text-[10px] font-medium text-gray-500 w-20 capitalize">{dim}</span>
+                                  <div className="flex-1 h-3 bg-gray-100 rounded-full overflow-hidden">
+                                    <div className="h-full rounded-full bg-leap-blue transition-all" style={{ width: `${val}%` }} />
+                                  </div>
+                                  <span className="text-[10px] font-bold text-gray-600 w-8 text-right">{val as number}%</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Strategy description */}
+                        {s.strategy_profile !== 'not_assessed' && (
+                          <div className="p-3 rounded-xl mb-4" style={{ background: sc.bg }}>
+                            <p className="text-[10px] font-bold" style={{ color: sc.text }}>
+                              {s.strategy_profile === 'competent' ? 'Uses flexible strategies, self-monitors, adapts approach' :
+                               s.strategy_profile === 'deep' ? 'Seeks understanding and connections, developing metacognition' :
+                               s.strategy_profile === 'surface' ? 'Relies on memorization, needs scaffolding for higher-order thinking' :
+                               'Low across multiple dimensions, needs immediate intervention'}
+                            </p>
+                          </div>
+                        )}
+
+                        {!s.diagnostic_completed && (
+                          <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-[11px] text-amber-800">
+                            Diagnostic assessment not yet completed. Student will be prompted to take it on their next login.
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
+                </div>
+              </div>
             </div>
           )}
         </div>

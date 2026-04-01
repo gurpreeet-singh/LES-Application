@@ -7,6 +7,8 @@ import { generateQuizSheetPDF, generateAnswerKeyPDF } from '../../lib/quizPdfGen
 import { useAuth } from '../../context/AuthContext';
 
 import { LessonAnalysis } from '../../components/teacher/LessonAnalysis';
+import { DIKWBadgeFromBloom } from '../../components/shared/DIKWBadge';
+import { getDIKWLevel, getDIKWLevelByPosition, DIKW_COACHING_PROMPTS } from '@leap/shared';
 type Tab = 'plan' | 'socratic' | 'quiz' | 'media' | 'analysis';
 type QuizMode = 'review' | 'interactive';
 
@@ -193,6 +195,7 @@ export function LessonDetailPage() {
               </span>
             )}
             {lesson.bloom_levels?.map((bl: string) => <BloomBadge key={bl} level={bl} />)}
+            <DIKWBadgeFromBloom bloomLevels={lesson.bloom_levels || []} size="md" />
             <span className="badge bg-gray-100 text-gray-500">{lesson.duration_minutes} min</span>
           </div>
         </div>
@@ -318,10 +321,33 @@ export function LessonDetailPage() {
             </div>
           ) : (
             <div className="space-y-4">
+              {/* DIKW Script Style Banner */}
+              {(() => {
+                const dikwLevel = getDIKWLevel(lesson.bloom_levels || []);
+                const styles: Record<string, { label: string; desc: string; color: string; bg: string }> = {
+                  data: { label: 'Data-Style Script', desc: 'Teacher-led explanation — focus on clear delivery of facts and definitions', color: '#1E40AF', bg: '#DBEAFE' },
+                  information: { label: 'Information-Style Script', desc: 'Guided exploration — students connect ideas and build understanding', color: '#166534', bg: '#DCFCE7' },
+                  knowledge: { label: 'Knowledge-Style Script', desc: 'Discovery-based — students find patterns through guided problem-solving', color: '#92400E', bg: '#FEF3C7' },
+                  wisdom: { label: 'Wisdom-Style Script', desc: 'Debate-driven — students defend positions, evaluate claims, and synthesize ideas', color: '#5B21B6', bg: '#EDE9FE' },
+                };
+                const s = styles[dikwLevel];
+                return (
+                  <div className="rounded-xl p-3 flex items-center gap-3" style={{ background: s.bg }}>
+                    <DIKWBadgeFromBloom bloomLevels={lesson.bloom_levels || []} size="md" />
+                    <div>
+                      <p className="text-[12px] font-bold" style={{ color: s.color }}>{s.label}</p>
+                      <p className="text-[10px]" style={{ color: s.color, opacity: 0.7 }}>{s.desc}</p>
+                    </div>
+                  </div>
+                );
+              })()}
+
               <div className="card p-4">
                 <div className="flex items-center justify-between">
                   <h3 className="section-header">Teaching Script Timeline</h3>
-                  <span className="badge bg-purple-100 text-purple-700">{totalScriptDuration} min total</span>
+                  <div className="flex items-center gap-2">
+                    <span className="badge bg-purple-100 text-purple-700">{totalScriptDuration} min total</span>
+                  </div>
                 </div>
                 {/* Timeline progress bar */}
                 <div className="flex gap-1 mt-3">
@@ -379,6 +405,25 @@ export function LessonDetailPage() {
               ))}
             </div>
           )}
+
+          {/* Thinking Coach — universal probing questions by DIKW level */}
+          {lesson.bloom_levels && (
+            <div className="card p-4 mt-4 border-l-4 border-l-purple-400">
+              <h3 className="section-header mb-2 flex items-center gap-2">
+                <span className="text-lg">🧠</span> Thinking Coach Prompts
+                <DIKWBadgeFromBloom bloomLevels={lesson.bloom_levels || []} />
+              </h3>
+              <p className="text-[10px] text-gray-400 mb-3">Use these universal questions to push students deeper — works alongside the Socratic script above.</p>
+              <div className="space-y-2">
+                {(DIKW_COACHING_PROMPTS[getDIKWLevel(lesson.bloom_levels || [])] || []).map((q: string, i: number) => (
+                  <div key={i} className="flex items-start gap-2 bg-purple-50 rounded-lg p-2.5">
+                    <span className="text-purple-500 font-bold text-sm shrink-0">?</span>
+                    <p className="text-[12px] text-purple-900 italic">"{q}"</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -399,7 +444,25 @@ export function LessonDetailPage() {
               <div className="card p-4 flex items-center justify-between">
                 <div>
                   <h3 className="section-header">Quiz — {gate?.short_title || 'Assessment'}</h3>
-                  <p className="text-[11px] text-gray-500 mt-0.5">{questions.length} questions across Bloom levels</p>
+                  <p className="text-[11px] text-gray-500 mt-0.5">{questions.length} questions across Bloom levels <DIKWBadgeFromBloom bloomLevels={questions.map((q: any) => q.bloom_level).filter(Boolean)} /></p>
+                  {/* DIKW distribution mini-bar */}
+                  {(() => {
+                    const dikwCounts: Record<string, number> = { Data: 0, Information: 0, Knowledge: 0, Wisdom: 0 };
+                    const map: Record<string, string> = { remember: 'Data', understand: 'Information', apply: 'Knowledge', analyze: 'Knowledge', evaluate: 'Wisdom', create: 'Wisdom' };
+                    questions.forEach((q: any) => { if (q.bloom_level && map[q.bloom_level]) dikwCounts[map[q.bloom_level]]++; });
+                    const total = questions.length || 1;
+                    const colors: Record<string, string> = { Data: '#3B82F6', Information: '#10B981', Knowledge: '#F59E0B', Wisdom: '#8B5CF6' };
+                    return (
+                      <div className="flex items-center gap-1 mt-1.5">
+                        {Object.entries(dikwCounts).filter(([, c]) => c > 0).map(([level, count]) => (
+                          <div key={level} className="flex items-center gap-1" style={{ flex: count }}>
+                            <div className="h-1.5 rounded-full w-full" style={{ background: colors[level] }} />
+                            <span className="text-[8px] font-bold shrink-0" style={{ color: colors[level] }}>{level[0]}:{count}</span>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })()}
                 </div>
                 <div className="flex gap-2 flex-wrap">
                   {/* Mode toggle */}
@@ -792,7 +855,23 @@ export function LessonDetailPage() {
 
 // ─── Media Panel Component ──────────────────────────────────
 
-interface SlidePreview { type: string; title: string; subtitle?: string; icon: string; sectionLabel: string; bullets?: string[]; numberedItems?: string[]; speakerNotes: string; accentColor: string }
+interface SlidePreview {
+  type: string; title: string; subtitle?: string; icon: string; sectionLabel: string;
+  bullets?: string[]; numberedItems?: string[]; speakerNotes: string; accentColor: string;
+  // V2 extensions
+  theme?: { background: string; primary_color: string; accent_color: string; text_color: string };
+  cards?: Array<{ label: string; content: string; sub_content?: string; emoji_icon?: string; color?: string; highlight?: boolean }>;
+  bodyText?: string;
+  table?: { headers: string[]; rows: string[][]; header_color?: string; alternate_row_colors?: boolean };
+  comparison?: { item_a: any; item_b: any; similarities: string[]; differences_a: string[]; differences_b: string[] };
+  buckets?: { categories: Array<{ label: string; color: string; items: string[] }> };
+  myths?: Array<{ myth: string; truth: string; visual_demo?: string }>;
+  verses?: Array<{ lines: string[]; color?: string; related_visual?: string }>;
+  chorusCue?: string;
+  quizItems?: Array<{ question: string; answer: string; type?: string }>;
+  engagementCue?: string;
+  bloomLevel?: string;
+}
 
 function MediaPanel({ courseId, lessonId, lessonTitle, lessonNumber, lesson, gate, questions }: { courseId: string; lessonId: string; lessonTitle: string; lessonNumber: number; lesson: any; gate: any; questions: any[] }) {
   const [slides, setSlides] = useState<SlidePreview[]>([]);
@@ -915,48 +994,207 @@ function MediaPanel({ courseId, lessonId, lessonTitle, lessonNumber, lesson, gat
   const activeIdx = videoPlaying ? videoSlideIdx : currentSlide;
 
   const renderSlide = (s: SlidePreview, idx: number, total: number) => {
-    const color = `#${s.accentColor}`;
-    const darkBg = s.type === 'title' || s.type === 'summary' || s.type === 'breakthrough';
-    const bgMap: Record<string, string> = { title: color, summary: color, breakthrough: color, question: '#F5F3FF', activity: '#FFFBEB', example: '#FFFFFF' };
-    const bg = bgMap[s.type] || '#FFFFFF';
+    const isV2 = !!s.theme;
+    const color = isV2 ? (s.theme!.primary_color || `#${s.accentColor}`) : `#${s.accentColor}`;
+    const accentC = isV2 ? (s.theme!.accent_color || color) : color;
+    const darkBg = isV2 ? (s.theme!.background?.includes('dark') || false) : (s.type === 'title' || s.type === 'summary' || s.type === 'breakthrough');
+    const bg = isV2
+      ? (darkBg ? color : s.theme!.background === 'pastel_warm' ? '#FFF8F0' : s.theme!.background === 'pastel_cool' ? '#F0F4FF' : s.theme!.background === 'light_tinted' ? '#F5F3FF' : '#FFFFFF')
+      : ({ title: color, summary: color, breakthrough: color, question: '#F5F3FF', activity: '#FFFBEB', example: '#FFFFFF' }[s.type] || '#FFFFFF');
     const items = s.numberedItems || s.bullets || [];
-    const sideColor = s.type === 'example' ? '#16A34A' : s.type === 'activity' ? '#F59E0B' : color;
+    const sideColor = isV2 ? color : (s.type === 'example' ? '#16A34A' : s.type === 'activity' ? '#F59E0B' : color);
+    const cards = s.cards || [];
 
     return (
       <div key={idx} className="relative w-full" style={{ aspectRatio: '16/9' }}>
         <div className="absolute inset-0 rounded-lg shadow-card-lg overflow-hidden" style={{ background: bg }}>
           {/* Left accent sidebar */}
           {!darkBg && <div className="absolute left-0 top-0 bottom-0 w-1.5" style={{ background: sideColor }} />}
+          {/* Decorative circles */}
+          {darkBg && <div className="absolute -top-8 -right-8 w-32 h-32 rounded-full opacity-15" style={{ background: accentC }} />}
+          {darkBg && <div className="absolute -bottom-6 -left-6 w-20 h-20 rounded-full opacity-15" style={{ background: accentC }} />}
 
-          {/* Decorative circle for dark slides */}
-          {darkBg && <div className="absolute -top-8 -right-8 w-32 h-32 rounded-full opacity-10" style={{ background: '#FFF' }} />}
-          {darkBg && <div className="absolute -bottom-6 -left-6 w-20 h-20 rounded-full opacity-10" style={{ background: '#FFF' }} />}
-
-          {/* Section label + icon */}
+          {/* Section label + bloom badge */}
           <div className="absolute top-3 left-5 flex items-center gap-1.5">
             <span className="text-base">{s.icon}</span>
             <span className={`text-[8px] font-bold tracking-widest ${darkBg ? 'text-white/60' : ''}`} style={!darkBg ? { color: sideColor } : {}}>{s.sectionLabel}</span>
+            {s.bloomLevel && <span className="text-[7px] px-1.5 py-0.5 rounded-full bg-white/20 text-white/70 font-bold uppercase">{s.bloomLevel}</span>}
           </div>
-
           {/* Slide number */}
           <div className="absolute top-3 right-4">
             <span className={`text-[9px] font-bold ${darkBg ? 'text-white/40' : 'text-gray-300'}`}>{idx + 1} / {total}</span>
           </div>
 
           {/* Content */}
-          <div className="absolute inset-0 flex flex-col justify-center px-8 pt-10 pb-8">
+          <div className="absolute inset-0 flex flex-col justify-center px-8 pt-10 pb-8 overflow-hidden">
+
+            {/* ═══ TITLE ═══ */}
             {s.type === 'title' ? (
               <>
                 <h2 className="text-2xl md:text-3xl font-black text-white mb-3 leading-tight">{s.title}</h2>
                 {s.subtitle && <pre className="text-[11px] text-white/60 whitespace-pre-wrap font-sans">{s.subtitle}</pre>}
               </>
+
+            /* ═══ SONG / RHYME ═══ */
+            ) : s.type === 'song_rhyme' && s.verses ? (
+              <>
+                <h2 className="text-base font-black mb-3 text-center" style={{ color: darkBg ? '#FFF' : '#1F2937' }}>♪ ♫ {s.title} ♫ ♪</h2>
+                <div className="space-y-2 max-h-[70%] overflow-y-auto">
+                  {s.verses.map((v, vi) => (
+                    <div key={vi} className="rounded-lg px-4 py-2 border-l-4" style={{ borderColor: v.color || color, background: darkBg ? 'rgba(255,255,255,0.1)' : '#FFF' }}>
+                      {v.lines.map((line, li) => <p key={li} className="text-[11px] italic leading-relaxed" style={{ color: v.color || color }}>{line}</p>)}
+                    </div>
+                  ))}
+                  {s.chorusCue && <div className="text-center mt-2"><span className="text-[10px] font-bold px-4 py-1.5 rounded-full text-white" style={{ background: accentC }}>{s.chorusCue}</span></div>}
+                </div>
+              </>
+
+            /* ═══ PROPERTIES TABLE ═══ */
+            ) : s.type === 'properties_table' && s.table ? (
+              <>
+                <h2 className="text-base font-black text-gray-800 mb-3">{s.title}</h2>
+                <div className="overflow-auto rounded-lg border border-gray-200">
+                  <table className="w-full text-[10px]">
+                    <thead><tr>{s.table.headers.map((h, hi) => <th key={hi} className="px-3 py-2 text-white font-bold text-left" style={{ background: s.table!.header_color || color }}>{h}</th>)}</tr></thead>
+                    <tbody>{s.table.rows.map((row, ri) => <tr key={ri} className={ri % 2 === 1 ? 'bg-gray-50' : ''}>{row.map((cell, ci) => <td key={ci} className="px-3 py-1.5 text-gray-700 border-t border-gray-100">{cell}</td>)}</tr>)}</tbody>
+                  </table>
+                </div>
+              </>
+
+            /* ═══ COMPARISON ═══ */
+            ) : s.type === 'comparison' && s.comparison ? (
+              <>
+                <h2 className="text-base font-black text-gray-800 mb-2">{s.title}</h2>
+                <div className="flex gap-2 items-stretch">
+                  <div className="flex-1 rounded-lg border-2 p-3" style={{ borderColor: s.comparison.item_a?.color || '#2E86DE' }}>
+                    <p className="text-[12px] font-black mb-1" style={{ color: s.comparison.item_a?.color }}>{s.comparison.item_a?.emoji} {s.comparison.item_a?.label}</p>
+                    <p className="text-[8px] font-bold text-green-600 mb-0.5">SAME:</p>
+                    {s.comparison.similarities?.map((sim, si) => <p key={si} className="text-[9px] text-gray-600">✓ {sim}</p>)}
+                    <p className="text-[8px] font-bold text-red-600 mt-1 mb-0.5">DIFFERENT:</p>
+                    {s.comparison.differences_a?.map((d, di) => <p key={di} className="text-[9px] text-gray-600">• {d}</p>)}
+                  </div>
+                  <div className="flex items-center"><span className="text-[10px] font-black px-2 py-1 rounded-full text-white" style={{ background: accentC }}>VS</span></div>
+                  <div className="flex-1 rounded-lg border-2 p-3" style={{ borderColor: s.comparison.item_b?.color || '#8E44AD' }}>
+                    <p className="text-[12px] font-black mb-1" style={{ color: s.comparison.item_b?.color }}>{s.comparison.item_b?.emoji} {s.comparison.item_b?.label}</p>
+                    <p className="text-[8px] font-bold text-green-600 mb-0.5">SAME:</p>
+                    {s.comparison.similarities?.map((sim, si) => <p key={si} className="text-[9px] text-gray-600">✓ {sim}</p>)}
+                    <p className="text-[8px] font-bold text-red-600 mt-1 mb-0.5">DIFFERENT:</p>
+                    {s.comparison.differences_b?.map((d, di) => <p key={di} className="text-[9px] text-gray-600">• {d}</p>)}
+                  </div>
+                </div>
+              </>
+
+            /* ═══ SORT / CLASSIFY ═══ */
+            ) : s.type === 'sort_classify' && s.buckets ? (
+              <>
+                <h2 className="text-base font-black text-gray-800 mb-2">{s.title}</h2>
+                <div className="flex gap-3">
+                  {s.buckets.categories?.map((cat, ci) => (
+                    <div key={ci} className="flex-1">
+                      <div className="rounded-t-lg px-3 py-1.5 text-center" style={{ background: cat.color }}><span className="text-[11px] font-bold text-white">{cat.label}</span></div>
+                      <div className="space-y-1 mt-1">{cat.items?.map((item, ii) => <div key={ii} className="rounded px-3 py-1 border text-[10px] text-gray-700 bg-white" style={{ borderColor: cat.color + '40' }}>• {item}</div>)}</div>
+                    </div>
+                  ))}
+                </div>
+              </>
+
+            /* ═══ MYTH BUSTER ═══ */
+            ) : s.type === 'myth_buster' && s.myths ? (
+              <>
+                <h2 className="text-base font-black text-gray-800 mb-2">Wait... Is That True? 🤔</h2>
+                <div className="space-y-2">
+                  {s.myths.map((m, mi) => (
+                    <div key={mi} className="flex gap-2">
+                      <div className="flex-1 rounded-lg border-2 border-red-300 bg-red-50 p-2.5">
+                        <span className="text-red-600 font-black text-[14px]">✗</span>
+                        <p className="text-[10px] italic text-red-900 mt-0.5">"{m.myth}"</p>
+                      </div>
+                      <div className="flex-1 rounded-lg border-2 border-green-300 bg-green-50 p-2.5">
+                        <span className="text-green-600 font-black text-[14px]">✓</span>
+                        <p className="text-[10px] text-green-900 mt-0.5">{m.truth}</p>
+                        {m.visual_demo && <p className="text-[8px] text-gray-400 italic mt-1">👁 {m.visual_demo}</p>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </>
+
+            /* ═══ QUICK QUIZ ═══ */
+            ) : s.type === 'quick_quiz' && s.quizItems ? (
+              <>
+                <h2 className="text-base font-black text-gray-800 mb-2">{s.title}</h2>
+                <div className="space-y-1.5">
+                  {s.quizItems.map((q, qi) => (
+                    <div key={qi} className="flex items-center gap-2">
+                      <div className="w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-bold text-white flex-shrink-0" style={{ background: color }}>{qi + 1}</div>
+                      <div className="flex-1 bg-gray-50 rounded px-3 py-1.5 border border-gray-100"><p className="text-[10px] text-gray-800">{q.question}</p></div>
+                      <div className="rounded-full px-3 py-1 text-[9px] font-bold text-white flex-shrink-0" style={{ background: accentC }}>{q.answer}</div>
+                    </div>
+                  ))}
+                </div>
+              </>
+
+            /* ═══ DETAIL CARDS / REAL WORLD / LEARNING ROADMAP / CREATE ACTIVITY ═══ */
+            ) : (s.type === 'detail_cards' || s.type === 'real_world' || s.type === 'learning_roadmap' || s.type === 'create_activity') && cards.length > 0 ? (
+              <>
+                <h2 className="text-base font-black mb-2" style={{ color: darkBg ? '#FFF' : '#1F2937' }}>{s.title}</h2>
+                <div className={`grid gap-2 ${cards.length <= 3 ? 'grid-cols-3' : cards.length <= 4 ? 'grid-cols-4' : 'grid-cols-3'}`}>
+                  {cards.slice(0, 6).map((cd, ci) => (
+                    <div key={ci} className="rounded-lg border bg-white overflow-hidden" style={{ borderColor: (cd.color || '#E2E8F0') + '60' }}>
+                      <div className="h-1" style={{ background: cd.color || color }} />
+                      <div className="p-2.5">
+                        <div className="flex items-center gap-1 mb-1">
+                          {cd.emoji_icon && <span className="text-[14px]">{cd.emoji_icon}</span>}
+                          <span className="text-[10px] font-bold" style={{ color: cd.color || '#1F2937' }}>{cd.label}</span>
+                        </div>
+                        <p className="text-[9px] text-gray-600 leading-relaxed">{cd.content}</p>
+                        {cd.sub_content && <p className="text-[8px] text-gray-400 italic mt-1">{cd.sub_content}</p>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </>
+
+            /* ═══ HOOK RIDDLE / HOOK STORY ═══ */
+            ) : (s.type === 'hook_riddle' || s.type === 'hook_story') ? (
+              <>
+                <h2 className="text-base font-black mb-3" style={{ color: darkBg ? '#FFF' : '#1F2937' }}>{s.title}</h2>
+                {(s.bodyText || items[0]) && (
+                  <div className="bg-white rounded-xl border-2 px-5 py-4 shadow-sm" style={{ borderColor: accentC }}>
+                    <p className="text-[13px] italic leading-relaxed" style={{ color: '#4C1D95' }}>"{s.bodyText || items[0]}"</p>
+                  </div>
+                )}
+                {cards.length > 0 && (
+                  <div className="flex gap-2 mt-3">{cards.slice(0, 3).map((cd, ci) => (
+                    <div key={ci} className="flex-1 rounded-lg p-2.5 text-white" style={{ background: cd.color || color }}>
+                      <p className="text-[10px] font-bold">{cd.emoji_icon} {cd.content}</p>
+                      {cd.sub_content && <div className="mt-1 bg-white rounded px-2 py-0.5 text-center"><span className="text-[9px] font-bold" style={{ color: cd.color || color }}>{cd.sub_content}</span></div>}
+                    </div>
+                  ))}</div>
+                )}
+              </>
+
+            /* ═══ SUMMARY (dark bg) ═══ */
+            ) : s.type === 'summary' ? (
+              <>
+                <h2 className="text-lg font-black text-white/90 mb-3">{s.title}</h2>
+                <div className="space-y-2">
+                  {items.map((b, i) => (
+                    <div key={i} className="bg-white/15 backdrop-blur rounded-lg px-4 py-2.5">
+                      <p className="text-sm text-white font-medium leading-relaxed">✓  {b}</p>
+                    </div>
+                  ))}
+                </div>
+              </>
+
+            /* ═══ V1 FALLBACKS: question, example, activity, breakthrough, generic ═══ */
             ) : darkBg ? (
               <>
                 <h2 className="text-lg font-black text-white/80 mb-3">{s.title}</h2>
                 <div className="space-y-2">
                   {items.map((b, i) => (
                     <div key={i} className="bg-white/15 backdrop-blur rounded-lg px-4 py-2.5">
-                      <p className="text-sm text-white font-medium leading-relaxed">{s.type === 'summary' ? `✓  ${b}` : `"${b}"`}</p>
+                      <p className="text-sm text-white font-medium leading-relaxed">{s.type === 'breakthrough' ? `"${b}"` : b}</p>
                     </div>
                   ))}
                 </div>
@@ -976,9 +1214,7 @@ function MediaPanel({ courseId, lessonId, lessonTitle, lessonNumber, lesson, gat
                   {items.map((item, i) => (
                     <div key={i} className="flex items-start gap-3">
                       <div className="w-6 h-6 rounded-full bg-green-600 text-white flex items-center justify-center text-[10px] font-bold flex-shrink-0 mt-0.5">{i + 1}</div>
-                      <div className="bg-green-50 border border-green-200 rounded-lg px-3 py-2 flex-1">
-                        <p className="text-[12px] text-gray-700 leading-relaxed">{item}</p>
-                      </div>
+                      <div className="bg-green-50 border border-green-200 rounded-lg px-3 py-2 flex-1"><p className="text-[12px] text-gray-700 leading-relaxed">{item}</p></div>
                     </div>
                   ))}
                 </div>
@@ -998,10 +1234,11 @@ function MediaPanel({ courseId, lessonId, lessonTitle, lessonNumber, lesson, gat
             ) : (
               <>
                 <h2 className="text-base font-black text-gray-800 mb-3">{s.title}</h2>
+                {s.bodyText && <div className="bg-blue-50 rounded-lg border border-blue-200 px-4 py-3 mb-2"><p className="text-[11px] text-blue-900 leading-relaxed">{s.bodyText}</p></div>}
                 <div className="space-y-2">
                   {items.map((b, i) => (
                     <div key={i} className="bg-gray-50 rounded-lg border border-gray-100 px-4 py-2.5">
-                      <p className="text-[12px] text-gray-700 leading-relaxed">{b}</p>
+                      <p className="text-[12px] text-gray-700 leading-relaxed">{s.type === 'step_by_step' ? `${i + 1}. ${b}` : b}</p>
                     </div>
                   ))}
                 </div>
@@ -1009,6 +1246,10 @@ function MediaPanel({ courseId, lessonId, lessonTitle, lessonNumber, lesson, gat
             )}
           </div>
 
+          {/* Engagement cue footer */}
+          {s.engagementCue && !darkBg && (
+            <div className="absolute bottom-7 left-0 right-0 h-6 flex items-center px-5" style={{ background: color }}><span className="text-[8px] text-white italic">🎯 {s.engagementCue}</span></div>
+          )}
           {/* Footer */}
           {!darkBg && (
             <div className="absolute bottom-0 left-0 right-0 h-7 flex items-center justify-between px-5" style={{ background: `${sideColor}08` }}>

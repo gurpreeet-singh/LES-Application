@@ -76,12 +76,48 @@ function buildPhase2GatePrompt(
   startLessonNumber: number,
   sessionDuration: number,
   classLevel?: string,
+  gatePositionRatio?: number,
 ) {
   const lessonNumbers = Array.from({ length: lessonCount }, (_, i) => startLessonNumber + i);
   const classDirective = getClassLevelDirective(classLevel);
 
+  // DIKW-aware Socratic script structure based on gate position in course
+  let dikwScriptDirective = '';
+  const pos = gatePositionRatio ?? 0.5;
+  if (pos <= 0.25) {
+    dikwScriptDirective = `
+DIKW LEVEL: DATA/INFORMATION (early course gate)
+Socratic scripts for this gate should emphasize teacher-led explanation and guided practice:
+- Stage 1 "Hook" (3 min): Quick activating question connecting to prior knowledge
+- Stage 2 "Explain & Explore" (15 min): Teacher explains core facts and definitions clearly, with visual aids
+- Stage 3 "Guided Practice" (12 min): Students practice with teacher support, fill-in-blank, matching exercises
+- Stage 4 "Check Understanding" (${sessionDuration - 30} min): Quick comprehension check — can students recall and explain?
+Lessons should assign dikw_level: "data" or "information".`;
+  } else if (pos <= 0.6) {
+    dikwScriptDirective = `
+DIKW LEVEL: KNOWLEDGE (mid course gate)
+Socratic scripts should emphasize discovery and application:
+- Stage 1 "Hook" (5 min): Real-world puzzle or problem that connects to students' experience
+- Stage 2 "Discovery" (15 min): Guide students to discover the concept through progressive questions
+- Stage 3 "Concept Build" (12 min): Students articulate the concept before seeing formal definition
+- Stage 4 "Application" (${sessionDuration - 32} min): Students apply the concept to a new problem
+THINK-PAIR-SHARE: Include at least one moment in Stage 2 or 3 where the teacher says "Turn to your partner and discuss: [specific question]" before sharing with the class. Mark this with [TPS] in the script.
+Lessons should assign dikw_level: "knowledge".`;
+  } else {
+    dikwScriptDirective = `
+DIKW LEVEL: WISDOM (late course gate)
+Socratic scripts should emphasize debate, judgment, and original thinking:
+- Stage 1 "Dilemma" (5 min): Present a real-world dilemma or case with no single right answer
+- Stage 2 "Debate" (18 min): Students explore multiple perspectives, defend positions with evidence
+- Stage 3 "Synthesis" (10 min): Students integrate ideas across multiple lessons/gates, find connections
+- Stage 4 "Position Defense" (${sessionDuration - 33} min): Each student articulates their judgment and justifies it
+THINK-PAIR-SHARE: Include at least TWO moments where the teacher says "Turn to your partner and discuss: [specific question]" before sharing with the class. Mark these with [TPS] in the script. Wisdom-level scripts should have students defend their positions to a partner before class discussion.
+Lessons should assign dikw_level: "wisdom" or "knowledge".`;
+  }
+
   return `Generate detailed lessons and Socratic teaching scripts for this single knowledge gate.
 ${classDirective}
+${dikwScriptDirective}
 
 GATE ${gate.number}: ${gate.title}
 Sub-concepts: ${gate.sub_concepts.join(', ')}
@@ -99,6 +135,7 @@ Output ONLY valid JSON:
     "objective": "learning objective", "key_idea": "core insight",
     "conceptual_breakthrough": "aha moment", "examples": ["example1", "example2"],
     "exercises": ["exercise1", "exercise2"], "bloom_levels": ["remember", "understand"],
+    "dikw_level": "data",
     "duration_minutes": ${sessionDuration}
   }],
   "step7_socratic_scripts": [{
@@ -152,6 +189,7 @@ export class DeconstructionService {
     totalSessions?: number,
     sessionDuration?: number,
     classLevel?: string,
+    generationMode?: 'batch' | 'progressive',
   ): Promise<void> {
     const sessions = totalSessions || 20;
     const duration = sessionDuration || 40;
@@ -186,18 +224,34 @@ export class DeconstructionService {
       throw new Error('AI returned no knowledge gates. Please try again with more detailed syllabus text.');
     }
 
+    // === For progressive mode: skip Phase 2 — lessons generated one at a time ===
+    if (generationMode === 'progressive') {
+      // Write structure only (gates, sub-concepts, bloom targets, prerequisites)
+      await this.writeStructureToDatabase(courseId, phase1);
+      // Set status to structure_ready instead of review
+      await this.db.from('courses').update({
+        status: 'structure_ready',
+        current_session_number: 0,
+        processing_completed_at: new Date().toISOString(),
+      }).eq('id', courseId);
+      console.log(`Progressive mode: Structure ready for course ${courseId} (${gates.length} gates). No lessons generated.`);
+      return;
+    }
+
     // === PHASE 2: Lessons + Scripts (steps 6-7) — one LLM call per gate ===
     const lessonDistribution = distributeLessonsAcrossGates(gates, sessions);
     const allLessons: any[] = [];
     const allScripts: any[] = [];
     let nextLessonNumber = 1;
 
-    for (const gate of gates) {
+    for (let gateIdx = 0; gateIdx < gates.length; gateIdx++) {
+      const gate = gates[gateIdx];
       const lessonCount = lessonDistribution.get(gate.number) || 1;
       const startLesson = nextLessonNumber;
       nextLessonNumber += lessonCount;
+      const gatePositionRatio = gates.length > 1 ? gateIdx / (gates.length - 1) : 0.5;
 
-      const gatePrompt = buildPhase2GatePrompt(gate, lessonCount, startLesson, duration, classLevel);
+      const gatePrompt = buildPhase2GatePrompt(gate, lessonCount, startLesson, duration, classLevel, gatePositionRatio);
 
       let gateRaw: string;
       try {
@@ -327,6 +381,54 @@ export class DeconstructionService {
     } catch (e) {
       throw new Error(`${label} JSON parse failed: ${(e as Error).message}\nFirst 300 chars: ${raw.slice(0, 300)}`);
     }
+  }
+
+  // Write structure only (gates, prerequisites, sub-concepts, bloom targets) — for progressive mode
+  private async writeStructureToDatabase(courseId: string, output: any): Promise<void> {
+    // 1. Insert gates
+    const gateInserts = output.step2_knowledge_graph.gates.map((g: any, i: number) => ({
+      course_id: courseId,
+      gate_number: g.number,
+      title: g.title,
+      short_title: g.short_title,
+      color: GATE_COLORS[i % GATE_COLORS.length].color,
+      light_color: GATE_COLORS[i % GATE_COLORS.length].light,
+      period: g.period,
+      sort_order: output.step5_learning_order?.find((o: any) => o.gate_number === g.number)?.cognitive_sequence_position || i + 1,
+      status: 'accepted', // Auto-accepted for progressive mode
+    }));
+    const { data: gates, error: gateErr } = await this.db.from('gates').insert(gateInserts).select();
+    if (gateErr || !gates) throw new Error(`Failed to insert gates: ${gateErr?.message}`);
+    const gateIdMap = new Map(gates.map(g => [g.gate_number, g.id]));
+
+    // 2. Insert prerequisites
+    const gateNameToNumber = new Map(output.step2_knowledge_graph.gates.map((g: any) => [g.title.toLowerCase(), g.number]));
+    const prereqInserts: { gate_id: string; prerequisite_gate_id: string }[] = [];
+    for (const g of output.step2_knowledge_graph.gates) {
+      for (const prereq of g.prerequisites) {
+        let prereqNumber = typeof prereq === 'number' ? prereq : parseInt(String(prereq), 10);
+        if (isNaN(prereqNumber)) prereqNumber = gateNameToNumber.get(String(prereq).toLowerCase()) || 0;
+        const gateId = gateIdMap.get(g.number);
+        const prereqId = gateIdMap.get(prereqNumber);
+        if (gateId && prereqId && gateId !== prereqId) {
+          prereqInserts.push({ gate_id: gateId, prerequisite_gate_id: prereqId });
+        }
+      }
+    }
+    if (prereqInserts.length > 0) await this.db.from('gate_prerequisites').insert(prereqInserts);
+
+    // 3. Insert sub-concepts
+    const subConceptInserts = output.step2_knowledge_graph.gates.flatMap((g: any) =>
+      g.sub_concepts.map((sc: string, i: number) => ({
+        gate_id: gateIdMap.get(g.number)!,
+        title: sc,
+        sort_order: i + 1,
+        status: 'accepted',
+      }))
+    ).filter((sc: any) => sc.gate_id);
+    if (subConceptInserts.length > 0) await this.db.from('sub_concepts').insert(subConceptInserts);
+
+    console.log(`Structure written: ${gates.length} gates, ${prereqInserts.length} prerequisites, ${subConceptInserts.length} sub-concepts`);
   }
 
   private async writeToDatabase(courseId: string, output: DeconstructionOutput): Promise<void> {

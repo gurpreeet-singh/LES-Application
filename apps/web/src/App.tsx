@@ -25,6 +25,10 @@ import { ProgramViewPage } from './pages/teacher/ProgramViewPage';
 // Student pages
 import { StudentDashboardPage } from './pages/student/DashboardPage';
 import { StudentQuizPage } from './pages/student/QuizPage';
+import { StudentCourseLessonsPage } from './pages/student/CourseLessonsPage';
+import { StudentLessonPage } from './pages/student/LessonPage';
+import { StudentPrepPage } from './pages/student/PrepPage';
+import { StudentDiagnosticPage } from './pages/student/DiagnosticPage';
 
 // Admin pages
 import { AdminDashboardPage } from './pages/admin/DashboardPage';
@@ -85,6 +89,10 @@ export default function App() {
             <Route element={<ProtectedRoute allowedRoles={['student']} />}>
               <Route path="/student" element={<StudentDashboardPage />} />
               <Route path="/student/courses/:courseId/quiz/:gateId" element={<StudentQuizPage />} />
+              <Route path="/student/courses/:courseId/lessons" element={<StudentCourseLessonsPage />} />
+              <Route path="/student/courses/:courseId/lessons/:lessonId" element={<StudentLessonPage />} />
+              <Route path="/student/courses/:courseId/lessons/:lessonId/prep" element={<StudentPrepPage />} />
+              <Route path="/student/courses/:courseId/diagnostic" element={<StudentDiagnosticPage />} />
               <Route path="/student/guide" element={<PlatformGuidePage />} />
             </Route>
 

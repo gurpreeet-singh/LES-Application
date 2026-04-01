@@ -463,4 +463,69 @@ router.post('/grade', requireRole('teacher'), upload.array('answer_sheets', 50),
   }
 });
 
+// ─── SPACED REPETITION FLASHCARD ENDPOINTS ──────────────────
+
+// GET /students/:studentId/flashcards/due — Get cards due for review
+router.get('/flashcards/due', async (req: Request, res: Response) => {
+  const studentId = req.params.studentId || req.user?.id;
+  const courseId = req.query.course_id as string;
+  if (!studentId) { res.status(401).json({ error: 'Unauthorized' }); return; }
+
+  let query = supabaseAdmin
+    .from('flashcard_reviews')
+    .select('*, questions:question_id(question_text, question_type, bloom_level, options, correct_answer)')
+    .eq('student_id', studentId)
+    .lte('next_review_at', new Date().toISOString())
+    .order('next_review_at')
+    .limit(20);
+
+  if (courseId) query = query.eq('course_id', courseId);
+  const { data, error } = await query;
+  if (error) { res.status(500).json({ error: error.message }); return; }
+  res.json({ due_cards: data || [], count: (data || []).length });
+});
+
+// POST /students/:studentId/flashcards/review — Record a flashcard review
+router.post('/flashcards/review', async (req: Request, res: Response) => {
+  const studentId = req.params.studentId || req.user?.id;
+  if (!studentId) { res.status(401).json({ error: 'Unauthorized' }); return; }
+
+  const { question_id, course_id, confidence } = req.body;
+  if (!question_id || !course_id) { res.status(400).json({ error: 'question_id and course_id required' }); return; }
+
+  // Spacing algorithm: confidence 1→1day, 2→3days, 3→7days, 4→14days, 5→30days
+  const spacingDays: Record<number, number> = { 1: 1, 2: 3, 3: 7, 4: 14, 5: 30 };
+  const conf = Math.max(1, Math.min(5, confidence || 1));
+  const nextReview = new Date();
+  nextReview.setDate(nextReview.getDate() + (spacingDays[conf] || 1));
+
+  const { data: existing } = await supabaseAdmin
+    .from('flashcard_reviews')
+    .select('id, review_count')
+    .eq('student_id', studentId)
+    .eq('question_id', question_id)
+    .single();
+
+  if (existing) {
+    await supabaseAdmin.from('flashcard_reviews').update({
+      confidence: conf,
+      review_count: (existing.review_count || 0) + 1,
+      next_review_at: nextReview.toISOString(),
+      last_reviewed_at: new Date().toISOString(),
+    }).eq('id', existing.id);
+  } else {
+    await supabaseAdmin.from('flashcard_reviews').insert({
+      student_id: studentId,
+      question_id,
+      course_id,
+      confidence: conf,
+      review_count: 1,
+      next_review_at: nextReview.toISOString(),
+      last_reviewed_at: new Date().toISOString(),
+    });
+  }
+
+  res.json({ message: 'Review recorded', next_review_at: nextReview.toISOString(), confidence: conf });
+});
+
 export default router;

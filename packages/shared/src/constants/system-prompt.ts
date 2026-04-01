@@ -75,7 +75,15 @@ Avoid:
 - disconnected topics
 - definition-first teaching
 
-Instead use: Experience → Question → Insight → Concept → Application`;
+Instead use: Experience → Question → Insight → Concept → Application
+
+DIKW Learning Progression — Every course MUST progress through these levels:
+- Data (Remember): Early lessons — students recall facts, definitions, terminology.
+- Information (Understand): Early-mid lessons — students explain, interpret, connect ideas.
+- Knowledge (Apply + Analyze): Mid lessons — students solve problems, compare approaches, find patterns.
+- Wisdom (Evaluate + Create): Late lessons — students judge, critique, defend positions, design original solutions.
+
+Each lesson MUST include a dikw_level field ("data", "information", "knowledge", or "wisdom") reflecting the highest cognitive tier targeted. The course as a whole should show a clear Data → Wisdom climb. Early gates emphasize Data and Information; later gates emphasize Knowledge and Wisdom. Do NOT keep all lessons at the same DIKW level.`;
 
 export const JSON_OUTPUT_DIRECTIVE = `
 IMPORTANT: You MUST output your entire analysis as a single valid JSON object. Do NOT include any text before or after the JSON. Do NOT wrap it in markdown code blocks. Output ONLY the JSON object with this exact structure:
@@ -123,6 +131,7 @@ IMPORTANT: You MUST output your entire analysis as a single valid JSON object. D
       "objective": "learning objective", "key_idea": "core insight",
       "conceptual_breakthrough": "aha moment", "examples": ["example1"],
       "exercises": ["exercise1"], "bloom_levels": ["remember", "understand"],
+      "dikw_level": "data",
       "duration_minutes": 40
     }
   ],
@@ -176,7 +185,7 @@ SOCRATIC SCRIPTS: Hooks must be STORIES, RHYMES, or SHOW-AND-TELL — never abst
 
 EXAMPLES: Must come from the child's world — school, home, playground, animals, food, family, festivals, toys. "Riya runs to school" not "The protagonist traverses the corridor."
 
-BLOOM LEVELS: Maximum ceiling is APPLY. Do NOT generate Analyze, Evaluate, or Create level content. Focus heavily on Remember and Understand with some Apply.
+BLOOM LEVELS: Primary focus on Remember, Understand, and Apply. You MAY include gentle Analyze moments using concrete framing ("Which one is different? Why?", "Sort these into two groups", "What's the pattern?"). You MAY include simple Evaluate moments ("Riya says X. Is she correct? Why?", "Which answer is better?") when the task is concrete and observable. Frame all higher-order thinking through stories, games, and physical sorting. Do NOT include abstract analysis or Create-level content.
 
 EXERCISES: Fill-in-the-blank, match columns, circle the correct answer, complete the sentence, spot the error. NO paragraph writing, NO essay questions, NO open-ended analysis.
 

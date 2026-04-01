@@ -1,5 +1,6 @@
 import PptxGenJS from 'pptxgenjs';
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { convertV2ToPreview, renderV2Pptx } from './slide-generation-v2.service.js';
 
 const BLOOM_DISPLAY: Record<string, string> = {
   remember: 'Remember', understand: 'Understand', apply: 'Apply',
@@ -34,6 +35,15 @@ export class SlideGenerationService {
 
     const { data: gate } = await this.db.from('gates').select('gate_number, title, short_title, color, sub_concepts(title)').eq('id', lesson.gate_id).single();
     const { data: course } = await this.db.from('courses').select('title, subject').eq('id', lesson.course_id).single();
+
+    // ─── V2: Use pre-generated rich slide content if available ───
+    if (lesson.slide_content && lesson.slide_content.slides) {
+      const slideData = convertV2ToPreview(lesson.slide_content, gate?.color || '#1B3A6B');
+      const buffer = await renderV2Pptx(lesson.slide_content, lesson.title, course?.subject || '');
+      const filename = `Lesson_${lesson.lesson_number}_${lesson.title.replace(/[^a-zA-Z0-9]/g, '_').slice(0, 40)}.pptx`;
+      return { buffer, filename, slideData };
+    }
+    // ─── V1: Fallback to deterministic template ─────────────────
 
     const ac = (gate?.color || '#1B3A6B').replace('#', '');
     const scripts = (lesson.socratic_scripts || []).sort((a: any, b: any) => a.stage_number - b.stage_number);

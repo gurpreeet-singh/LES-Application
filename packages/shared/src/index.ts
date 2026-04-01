@@ -6,4 +6,7 @@ export { GRADING_SYSTEM_PROMPT, buildGradingPrompt } from './constants/grading-p
 export { EXTRACTION_SYSTEM_PROMPT, buildExtractionPrompt } from './constants/extraction-prompt';
 export type { QuestionContext } from './constants/extraction-prompt';
 export { ADAPTIVE_SUGGESTION_PROMPT, buildSuggestionPrompt } from './constants/suggestion-prompt';
+export { buildProgressiveSessionPrompt } from './constants/progressive-session-prompt';
+export type { ProgressiveSessionParams } from './constants/progressive-session-prompt';
+export { DIAGNOSTIC_QUESTIONS, scoreDiagnostic } from './constants/diagnostic-questions';
 export { DeconstructionOutputSchema } from './validators/schemas';

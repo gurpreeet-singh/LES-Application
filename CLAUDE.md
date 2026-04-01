@@ -60,7 +60,7 @@ The AI pipeline automatically adapts based on `class_level` set on the course:
 
 ---
 
-## Features Built (March 30-31, 2026)
+## Features Built (March 30 - April 2, 2026)
 
 ### Lesson Detail Page (`apps/web/src/pages/teacher/LessonDetailPage.tsx`)
 - **Interactive Quiz Player** — Take quiz mode with one question at a time, immediate feedback, score tracking
@@ -88,8 +88,50 @@ The AI pipeline automatically adapts based on `class_level` set on the course:
 
 ### Platform Guide (`apps/web/src/pages/teacher/PlatformGuidePage.tsx`)
 - 4 persona-specific guides: Teacher (School), Teacher (College), Student, Admin
-- "One Platform, Every Class Level" section in all guides
+- "One Platform, Every Class Level" + "DIKW Learning Progression" sections
 - Routes: `/teacher/guide`, `/student/guide`, `/admin/guide`
+
+### DIKW Framework Integration (April 1, 2026)
+- DIKW constants: `DIKWLevel`, `DIKW_MAPPING`, `DIKW_COLORS`, `getDIKWLevel()`, `getDIKWLevelByPosition()`
+- DIKW badges on lessons, Socratic scripts, quiz headers, course overview, sessions, student detail
+- DIKW pyramid on student dashboard and teacher analytics
+- DIKW-aware Socratic script styles: Data=teacher-led, Knowledge=discovery, Wisdom=debate
+- DIKW progression bar on course overview and syllabus tab
+- Coaching prompts per DIKW level (Thinking Coach card in Socratic tab)
+
+### Progressive Session Generation (April 1, 2026)
+- `POST /courses/:id/generate-next-session` — iterative one-session-at-a-time generation
+- Each session adapts to: previous session outcomes, class avg, misconceptions, teacher feedback, class diagnostic profile
+- `POST /courses/:id/generate-all-remaining` — batch fallback
+- Upload page: Progressive/Batch mode toggle (Progressive default)
+- Course detail: Progressive generation card with progress bar + feedback input
+- Uses direct Railway URL (not Netlify proxy) to avoid 30s timeout
+
+### 10 Research-Backed Features (April 1-2, 2026)
+- **F1: Student Lesson Access** — Students can view slides, flashcards, mind map, chatbot per lesson
+- **F2: Think-Pair-Share** — [TPS] prompts in Knowledge/Wisdom Socratic scripts
+- **F3: Worked Example Fading** — 3-4 examples early → 1 example late (cognitive load theory)
+- **F4: Pre-class AI Prep** — "Prepare for Class" page with readiness quiz (flipped classroom)
+- **F5: Bloom-Gated Quiz** — Questions ordered Remember → Create (ZPD scaffolding)
+- **F6: Spaced Repetition Flashcards** — Review tracking with 1→3→7→14→30 day intervals
+- **F7: Process-Focused Feedback** — "You used wrong rule at step 2" not just "Wrong"
+- **F8: Metacognitive Prediction** — "How will you score?" slider before quiz
+- **F9: Interleaved Review** — 2 review questions from past sessions after Session 3
+- **F10: Mastery Indicators** — Not Started → Attempted → Familiar → Proficient → Mastered
+
+### Learner Profiling System (April 2, 2026)
+- **Diagnostic Assessment** — 20-question "Getting to Know Your Learning Style" at enrollment
+  - 4 sections: Prior Knowledge, Cognitive Readiness (Bloom ladder), Learning Strategy, Processing Preference
+  - Scoring: prior_knowledge_score, bloom_ceiling, strategy_profile, 5 learning dimensions
+  - Student sees encouraging summary; teacher sees full profile with strategy label
+- **Students Tab** — Dedicated tab in CourseDetailPage with full per-student profiles
+  - Two-panel: roster (sortable, filterable by strategy) + student deep dive (right panel)
+  - Shows: strategy badge, Bloom ceiling, prior knowledge, learning style bars, diagnostic status
+  - Filter by: All, Competent, Deep, Surface, Struggling, Not Assessed
+- **Class Profile in Progressive Generation** — Aggregated diagnostic data feeds into session generation
+  - Dominant strategy, avg prior knowledge, dominant learning dimension, struggling count
+  - AI adapts: surface class → more examples; visual class → more diagrams; low knowledge → basics first
+- **Continuous Inference** — Strategy profile updates from ongoing quiz patterns
 
 ---
 
@@ -183,24 +225,55 @@ railway up
 | **Velocity chart (SVG)** | `apps/web/src/components/shared/VelocitySVG.tsx` |
 | **Platform guide (all personas)** | `apps/web/src/pages/teacher/PlatformGuidePage.tsx` |
 | **Route index (temp endpoints)** | `apps/api/src/routes/index.ts` |
+| **Progressive session generation** | `apps/api/src/services/progressive-generation.service.ts` |
+| **Progressive session prompt** | `packages/shared/src/constants/progressive-session-prompt.ts` |
+| **Diagnostic questions + scoring** | `packages/shared/src/constants/diagnostic-questions.ts` |
+| **Diagnostic API** | `apps/api/src/routes/diagnostic.routes.ts` |
+| **DIKW badge component** | `apps/web/src/components/shared/DIKWBadge.tsx` |
+| **DIKW pyramid component** | `apps/web/src/components/shared/DIKWPyramid.tsx` |
+| **Student lesson page** | `apps/web/src/pages/student/LessonPage.tsx` |
+| **Student course lessons page** | `apps/web/src/pages/student/CourseLessonsPage.tsx` |
+| **Student prep page** | `apps/web/src/pages/student/PrepPage.tsx` |
+| **Student diagnostic page** | `apps/web/src/pages/student/DiagnosticPage.tsx` |
+| **All system prompts (consolidated)** | `LEAP_System_Prompts.md` |
+| **Pedagogy research findings** | `LEAP_Combined_Pedagogy_Research.md` |
+
+---
+
+## Database Migrations (Supabase)
+
+| Migration | Purpose |
+|---|---|
+| 001-012 | Original schema (users, courses, gates, lessons, questions, progress, suggestions, etc.) |
+| 013 | Progressive generation: `generation_mode`, `current_session_number` on courses; `teacher_feedback`, `generation_context` on lessons; `structure_ready` status |
+| 014 | Adaptive features: `prep_score`, `prep_completed_at` on student_gate_progress; `flashcard_reviews` table; `predicted_score` on question_attempts |
+| 015 | Learner profiling: `strategy_profile`, `prior_knowledge_score`, `bloom_ceiling`, `engagement_score`, `diagnostic_results`, `diagnostic_completed_at` on learning_profiles |
 
 ---
 
 ## Known Issues & Technical Debt
 
-1. **Temporary endpoints** in `routes/index.ts`: `/seed-demo`, `/update-questions` — should be removed after demo period.
-2. **Supabase query performance** — Large courses (350+ questions × 30 students = 10,500+ attempts) require per-gate batching to avoid default 1000-row limit.
-3. **Some gates have 0 lessons** — AI deconstruction Phase 2 occasionally fails to generate lessons for some gates (JSON truncation with Haiku). These gates show as "upcoming" in analytics.
-4. **Pre-commit hooks** — `tsc` strict mode fails on pre-existing type errors (GateNode, import.meta.env). Vite build works fine.
-5. **Student experience is minimal** — Only 2 pages (dashboard + quiz). Lesson content (slides, flashcards, mind map, chatbot) only accessible from teacher view. Expanding student access is the next priority based on teacher feedback (2026-03-31).
+1. **Temporary endpoints** in `routes/index.ts`: `/seed-demo`, `/update-questions` — remove after demo period.
+2. **Supabase 1000-row limit** — Use `.limit(10000)` or per-gate batching for `question_attempts` queries.
+3. **Some gates have 0 lessons** — AI Phase 2 occasionally fails (JSON truncation). Gates show as "upcoming".
+4. **Pre-commit hooks** — `tsc` strict mode fails on pre-existing type errors. Vite build works fine.
+5. **LLM calls must use direct Railway URL** — Netlify proxy times out at 30s. Quiz gen, chatbot, and progressive gen all use direct URL.
+6. **Continuous strategy inference** — Not yet implemented. Strategy profile currently comes only from diagnostic assessment, not updated from ongoing quiz behavior.
 
 ---
 
 ## Teacher Feedback (2026-03-31 Demo)
 
-Key insight: Teachers want the platform to **adapt to learner abilities and potential**, not just optimize teaching pedagogy. Current platform is teacher-centric (content generation + analytics) but student experience is thin. Priority areas:
-- Bloom-gated question difficulty (serve questions at student's level)
-- Learning style inference from quiz behavior
-- Student-facing misconception feedback
-- Adaptive learning paths (personalized gate sequencing)
-- Expose lesson content (slides, flashcards, chatbot) to students
+Key insight: Teachers want the platform to **adapt to learner abilities and potential**, not just optimize teaching pedagogy.
+
+**Addressed (April 1-2):**
+- ✅ Bloom-gated question difficulty (F5)
+- ✅ Learning style profiling via diagnostic assessment
+- ✅ Student-facing lesson content (F1: slides, flashcards, mind map, chatbot)
+- ✅ Adaptive session generation (progressive mode)
+- ✅ Class diagnostic profile feeds into lesson generation
+
+**Remaining:**
+- Adaptive learning paths (personalized gate sequencing per student)
+- Real-time strategy inference from quiz behavior (not just diagnostic)
+- Student-facing misconception feedback dashboard

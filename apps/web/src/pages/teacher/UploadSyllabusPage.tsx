@@ -25,6 +25,7 @@ export function UploadSyllabusPage() {
   const llmProvider = 'openrouter'; // Uses best available AI model
   const [totalSessions, setTotalSessions] = useState<number>(30);
   const [sessionDuration, setSessionDuration] = useState<number>(40);
+  const [generationMode, setGenerationMode] = useState<'progressive' | 'batch'>('progressive');
   const [processing, setProcessing] = useState(false);
   const [stepStatuses, setStepStatuses] = useState<Record<number, string>>({});
   const [error, setError] = useState('');
@@ -64,7 +65,7 @@ export function UploadSyllabusPage() {
 
     // Trigger background processing
     try {
-      await api.post(`/courses/${courseId}/process`, {});
+      await api.post(`/courses/${courseId}/process`, { generation_mode: generationMode });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to start processing');
       setProcessing(false);
@@ -94,11 +95,15 @@ export function UploadSyllabusPage() {
         const data = await api.get<{ course: { status: string; processing_error?: string | null } }>(`/courses/${courseId}`);
         const status = data.course.status;
 
-        if (status === 'review' || status === 'active') {
+        if (status === 'review' || status === 'active' || status === 'structure_ready') {
           clearInterval(stepTimer);
           if (pollRef.current) clearInterval(pollRef.current);
           setStepStatuses(Object.fromEntries(STEPS.map((_, i) => [i + 1, 'complete'])));
-          setTimeout(() => navigate(`/teacher/courses/${courseId}/review`), 800);
+          // Progressive mode goes to course detail (to start generating sessions), batch goes to review
+          const targetPath = status === 'structure_ready'
+            ? `/teacher/courses/${courseId}/detail`
+            : `/teacher/courses/${courseId}/review`;
+          setTimeout(() => navigate(targetPath), 800);
         } else if (status === 'draft') {
           clearInterval(stepTimer);
           if (pollRef.current) clearInterval(pollRef.current);
@@ -216,6 +221,27 @@ export function UploadSyllabusPage() {
               </div>
             </div>
             <p className="text-[11px] text-gray-400 mt-2">Total teaching time: {totalSessions * sessionDuration} minutes ({Math.round(totalSessions * sessionDuration / 60)} hours)</p>
+          </div>
+
+          {/* Generation Mode */}
+          <div className="card p-4">
+            <h3 className="text-sm font-bold text-gray-700 mb-3">Session Generation Mode</h3>
+            <div className="space-y-2">
+              <label className={`flex items-start gap-3 p-3 rounded-xl border-2 cursor-pointer transition-all ${generationMode === 'progressive' ? 'border-leap-navy bg-blue-50' : 'border-gray-200 hover:bg-gray-50'}`}>
+                <input type="radio" name="gen_mode" checked={generationMode === 'progressive'} onChange={() => setGenerationMode('progressive')} className="mt-1" />
+                <div>
+                  <p className="text-sm font-bold text-gray-900">Progressive <span className="badge bg-green-100 text-green-700 ml-2">Recommended</span></p>
+                  <p className="text-[11px] text-gray-500 mt-0.5">Generate one session at a time, adapting to student performance. Each session builds on the previous session's outcomes — scores, misconceptions, and your feedback.</p>
+                </div>
+              </label>
+              <label className={`flex items-start gap-3 p-3 rounded-xl border-2 cursor-pointer transition-all ${generationMode === 'batch' ? 'border-leap-navy bg-blue-50' : 'border-gray-200 hover:bg-gray-50'}`}>
+                <input type="radio" name="gen_mode" checked={generationMode === 'batch'} onChange={() => setGenerationMode('batch')} className="mt-1" />
+                <div>
+                  <p className="text-sm font-bold text-gray-900">Batch <span className="badge bg-gray-100 text-gray-600 ml-2">Traditional</span></p>
+                  <p className="text-[11px] text-gray-500 mt-0.5">Generate all sessions upfront in one go. Faster but doesn't adapt to student performance.</p>
+                </div>
+              </label>
+            </div>
           </div>
 
           {error && <div className="bg-red-50 border border-red-200 text-red-700 text-sm p-3 rounded-xl mb-4">{error}</div>}

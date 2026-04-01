@@ -85,15 +85,27 @@ Output ONLY a valid JSON object with this structure (no markdown, no text before
   ]
 }`;
 
-export function buildQuizGenerationPrompt(lessons: { lesson_number: number; title: string; objective: string; key_idea?: string; bloom_levels: string[]; gate_title: string; sub_concepts: string[] }[], classLevel?: string) {
-  const lessonDescriptions = lessons.map(l =>
-    `Lesson ${l.lesson_number}: "${l.title}"
+export function buildQuizGenerationPrompt(lessons: { lesson_number: number; title: string; objective: string; key_idea?: string; bloom_levels: string[]; gate_title: string; sub_concepts: string[] }[], classLevel?: string, totalLessonsInCourse?: number) {
+  const lessonDescriptions = lessons.map(l => {
+    // DIKW-aware distribution based on lesson position in course
+    let dikwDirective = '';
+    if (totalLessonsInCourse && totalLessonsInCourse > 0) {
+      const ratio = l.lesson_number / totalLessonsInCourse;
+      if (ratio <= 0.3) {
+        dikwDirective = '\n  - DIKW POSITION: Early course (Data/Information focus). Distribution: 3 Remember, 3 Understand, 2 Apply, 1 Analyze, 1 Evaluate. Emphasize recall and comprehension.';
+      } else if (ratio <= 0.7) {
+        dikwDirective = '\n  - DIKW POSITION: Mid course (Knowledge focus). Distribution: 1 Remember, 2 Understand, 3 Apply, 2 Analyze, 1 Evaluate, 1 Create. Emphasize application and pattern-finding.';
+      } else {
+        dikwDirective = '\n  - DIKW POSITION: Late course (Wisdom focus). Distribution: 1 Understand, 2 Apply, 2 Analyze, 2 Evaluate, 2 Create, 1 Open Judgment. Emphasize critique, judgment, and original thinking.';
+      }
+    }
+    return `Lesson ${l.lesson_number}: "${l.title}"
   - Objective: ${l.objective}
   - Key Idea: ${l.key_idea || 'N/A'}
   - Bloom Levels: ${l.bloom_levels.join(', ')}
   - Gate: ${l.gate_title}
-  - Sub-concepts: ${l.sub_concepts.join(', ')}`
-  ).join('\n\n');
+  - Sub-concepts: ${l.sub_concepts.join(', ')}${dikwDirective}`;
+  }).join('\n\n');
 
   let classContext = '';
   if (classLevel) {
@@ -106,7 +118,7 @@ QUESTION STYLE: Use character names ("Riya says...", "Aman thinks..."). Keep sen
 MCQ: Only 3 options (not 4). Keep question text under 20 words.
 QUESTION TYPES: MCQ (4 questions), True/False (3 questions), Fill-in-the-blank (3 questions).
 DO NOT generate open-ended paragraph questions or create-level questions.
-BLOOM CEILING: Apply maximum. No Analyze, Evaluate, or Create.
+BLOOM RANGE: Primarily Remember, Understand, Apply. You may include 1-2 gentle Analyze questions using concrete framing ("Which one does NOT belong? Why?", "Sort these into two groups"). You may include 1 simple Evaluate question ("Riya says X. Is she correct? Why?"). Do NOT include abstract analysis or Create-level questions.
 EXAMPLES: School, home, animals, family, playground, food, festivals.
 MISCONCEPTIONS: Frame as "Riya says [wrong thing]. Is she correct?" — gentle error-finding.
 REMEMBER level example: "What do we call words that name a person, place, or thing?" (MCQ)
@@ -145,8 +157,28 @@ Open-ended answers should require 4-6 sentences with evidence-based reasoning.`;
     }
   }
 
+  // Add wisdom-level assessment directive for late-course lessons
+  let wisdomDirective = '';
+  if (totalLessonsInCourse && lessons.length > 0) {
+    const hasWisdomLesson = lessons.some(l => {
+      const ratio = l.lesson_number / totalLessonsInCourse;
+      return ratio > 0.7 || (l.bloom_levels || []).some(bl => ['evaluate', 'create'].includes(bl.toLowerCase()));
+    });
+    if (hasWisdomLesson) {
+      wisdomDirective = `
+
+WISDOM-LEVEL ASSESSMENT (for late-course lessons at Evaluate/Create level):
+Include at least 2 questions from these advanced formats:
+- ETHICAL DILEMMA: "Two students/experts disagree about X. Who has the stronger argument and why?"
+- MULTI-STAKEHOLDER: "How would a farmer/consumer/government/student view this differently?"
+- OPEN JUDGMENT: "Is this solution fair? There is no single right answer — defend YOUR position with evidence."
+- DESIGN CHALLENGE: "Design an experiment/policy/problem that tests this concept in a new context."
+These questions should have rubrics that assess quality of reasoning, not just correctness.`;
+    }
+  }
+
   return {
-    system: QUIZ_GENERATION_PROMPT + classContext + '\n\n' + QUIZ_JSON_DIRECTIVE,
+    system: QUIZ_GENERATION_PROMPT + classContext + wisdomDirective + '\n\n' + QUIZ_JSON_DIRECTIVE,
     user: `Generate 10 high-quality quiz questions for each of these lessons. Remember: every question must use specific action verbs, reference actual lesson content, and test genuine understanding — NOT generic templates.\n\n${lessonDescriptions}`,
   };
 }

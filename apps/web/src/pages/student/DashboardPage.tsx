@@ -7,6 +7,8 @@ import { VelocitySVG } from '../../components/shared/VelocitySVG';
 import { BloomBadge } from '../../components/shared/BloomBadge';
 import { getMasteryColor, getMasteryLabel } from '../../lib/utils';
 import type { Course, StudentGateProgress, Gate, LearningProfile } from '@leap/shared';
+import { getDIKWFromBloomScores, getMasteryLevel } from '@leap/shared';
+import { DIKWPyramid } from '../../components/shared/DIKWPyramid';
 
 export function StudentDashboardPage() {
   const { profile } = useAuth();
@@ -178,6 +180,49 @@ export function StudentDashboardPage() {
 
         {/* Sidebar */}
         <div className="space-y-5">
+          {/* DIKW Learning Journey */}
+          {progress.length > 0 && (
+            <div className="bg-white border border-gray-200 rounded-xl p-4">
+              <h3 className="text-sm font-semibold text-gray-700 mb-3">Your Learning Journey</h3>
+              {(() => {
+                // Aggregate DIKW from all gate bloom_scores
+                const totals = { data: 0, information: 0, knowledge: 0, wisdom: 0 };
+                let count = 0;
+                for (const p of progress) {
+                  if (p.bloom_scores) {
+                    const dikw = getDIKWFromBloomScores(p.bloom_scores as Record<string, number>);
+                    totals.data += dikw.data;
+                    totals.information += dikw.information;
+                    totals.knowledge += dikw.knowledge;
+                    totals.wisdom += dikw.wisdom;
+                    count++;
+                  }
+                }
+                const avg = count > 0 ? {
+                  data: Math.round(totals.data / count) as number,
+                  information: Math.round(totals.information / count) as number,
+                  knowledge: Math.round(totals.knowledge / count) as number,
+                  wisdom: Math.round(totals.wisdom / count) as number,
+                } : { data: 0, information: 0, knowledge: 0, wisdom: 0 };
+
+                // Determine strongest level
+                const levels = Object.entries(avg).sort((a, b) => b[1] - a[1]);
+                const strongest = levels[0];
+                const developing = levels.find(l => l[1] > 0 && l[1] < 50);
+
+                return (
+                  <>
+                    <DIKWPyramid scores={avg} size={180} />
+                    <p className="text-[11px] text-gray-600 text-center mt-2">
+                      Strong at <span className="font-bold text-gray-800">{strongest[0]}</span> ({strongest[1]}%)
+                      {developing && <>, developing <span className="font-bold text-gray-800">{developing[0]}</span> ({developing[1]}%)</>}
+                    </p>
+                  </>
+                );
+              })()}
+            </div>
+          )}
+
           {learningProfile && (
             <div className="bg-white border border-gray-200 rounded-xl p-4">
               <h3 className="text-sm font-semibold text-gray-700 mb-3">Learning Style</h3>
@@ -196,17 +241,23 @@ export function StudentDashboardPage() {
           )}
 
           <div className="bg-white border border-gray-200 rounded-xl p-4">
-            <h3 className="text-sm font-semibold text-gray-700 mb-3">Gate Health</h3>
+            <h3 className="text-sm font-semibold text-gray-700 mb-3">Mastery Progression</h3>
             {progress.map(p => {
               const g = gates.find(g => g.id === p.gate_id);
               if (!g) return null;
-              const mc = getMasteryColor(p.mastery_pct);
+              const ml = getMasteryLevel(p.mastery_pct);
               return (
-                <div key={p.gate_id} className="flex items-center gap-2 mb-1.5 text-xs">
-                  <div className="w-2 h-2 rounded-full" style={{ background: mc.dot }} />
-                  <span className="text-gray-600">G{g.gate_number}</span>
-                  <span className="text-gray-400 flex-1">{g.short_title}</span>
-                  <span style={{ color: mc.txt }} className="font-medium">{p.mastery_pct > 0 ? `${p.mastery_pct}%` : '🔒'}</span>
+                <div key={p.gate_id} className="flex items-center gap-2 mb-2 text-xs">
+                  <span className="text-gray-500 w-5 font-bold">G{g.gate_number}</span>
+                  <div className="flex-1">
+                    <div className="flex items-center justify-between mb-0.5">
+                      <span className="text-gray-600">{g.short_title}</span>
+                      <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full" style={{ background: ml.bg, color: ml.color }}>{ml.label}</span>
+                    </div>
+                    <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                      <div className="h-full rounded-full transition-all" style={{ width: `${p.mastery_pct}%`, background: ml.color }} />
+                    </div>
+                  </div>
                 </div>
               );
             })}

@@ -107,6 +107,82 @@ router.get('/bloom-dist/:gateId', requireRole('teacher'), async (req: Request, r
   res.json({ gate_id: req.params.gateId, levels: distribution, gap_analysis });
 });
 
+// GET /courses/:courseId/analytics/dikw-distribution — DIKW pyramid data
+router.get('/dikw-distribution', requireRole('teacher'), async (req: Request, res: Response) => {
+  const courseId = req.params.courseId;
+
+  const { data: progress } = await supabaseAdmin
+    .from('student_gate_progress')
+    .select('student_id, gate_id, bloom_scores, bloom_ceiling')
+    .eq('course_id', courseId)
+    .limit(5000);
+
+  const { data: gates } = await supabaseAdmin
+    .from('gates')
+    .select('id, gate_number, short_title, sort_order')
+    .eq('course_id', courseId)
+    .order('sort_order');
+
+  const { data: enrollments } = await supabaseAdmin
+    .from('enrollments')
+    .select('student_id, profiles:student_id(full_name)')
+    .eq('course_id', courseId);
+
+  if (!progress || !gates || !enrollments) {
+    res.json({ class_distribution: { data: 0, information: 0, knowledge: 0, wisdom: 0 }, per_student: [], per_gate: [] });
+    return;
+  }
+
+  const dikwMap: Record<string, string> = { remember: 'data', understand: 'information', apply: 'knowledge', analyze: 'knowledge', evaluate: 'wisdom', create: 'wisdom' };
+  const dikwOrder = ['data', 'information', 'knowledge', 'wisdom'];
+
+  // Per-student DIKW scores (averaged across gates)
+  const studentScores = new Map<string, { data: number[]; information: number[]; knowledge: number[]; wisdom: number[] }>();
+  for (const p of progress) {
+    if (!p.bloom_scores) continue;
+    if (!studentScores.has(p.student_id)) studentScores.set(p.student_id, { data: [], information: [], knowledge: [], wisdom: [] });
+    const s = studentScores.get(p.student_id)!;
+    const bs = p.bloom_scores as Record<string, number>;
+    s.data.push(bs.remember || 0);
+    s.information.push(bs.understand || 0);
+    s.knowledge.push(Math.round(((bs.apply || 0) + (bs.analyze || 0)) / 2));
+    s.wisdom.push(Math.round(((bs.evaluate || 0) + (bs.create || 0)) / 2));
+  }
+
+  const nameMap = new Map(enrollments.map((e: any) => [e.student_id, e.profiles?.full_name || 'Unknown']));
+  const avg = (arr: number[]) => arr.length > 0 ? Math.round(arr.reduce((a, b) => a + b, 0) / arr.length) : 0;
+
+  const per_student = Array.from(studentScores.entries()).map(([sid, s]) => ({
+    student_id: sid,
+    name: nameMap.get(sid) || 'Unknown',
+    data: avg(s.data),
+    information: avg(s.information),
+    knowledge: avg(s.knowledge),
+    wisdom: avg(s.wisdom),
+    primary_level: (() => {
+      const scores = { data: avg(s.data), information: avg(s.information), knowledge: avg(s.knowledge), wisdom: avg(s.wisdom) };
+      return Object.entries(scores).sort((a, b) => b[1] - a[1])[0][0];
+    })(),
+  }));
+
+  // Class-wide distribution (average of all students)
+  const class_distribution = {
+    data: avg(per_student.map(s => s.data)),
+    information: avg(per_student.map(s => s.information)),
+    knowledge: avg(per_student.map(s => s.knowledge)),
+    wisdom: avg(per_student.map(s => s.wisdom)),
+  };
+
+  // Per-gate DIKW emphasis (based on gate position — early gates = data, late = wisdom)
+  const per_gate = (gates || []).map((g: any, i: number) => {
+    const ratio = gates.length > 1 ? i / (gates.length - 1) : 0.5;
+    const primary_dikw = ratio <= 0.25 ? 'data' : ratio <= 0.5 ? 'information' : ratio <= 0.75 ? 'knowledge' : 'wisdom';
+    return { gate_id: g.id, gate_number: g.gate_number, short_title: g.short_title, primary_dikw };
+  });
+
+  res.json({ class_distribution, per_student, per_gate });
+});
+
 // GET /courses/:courseId/analytics/dependency-risk
 router.get('/dependency-risk', requireRole('teacher'), async (req: Request, res: Response) => {
   const courseId = req.params.courseId;

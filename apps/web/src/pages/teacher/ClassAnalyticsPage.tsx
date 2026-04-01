@@ -4,6 +4,8 @@ import { api } from '../../lib/api';
 import { useAuth } from '../../context/AuthContext';
 import { BloomBarSVG } from '../../components/shared/BloomBarSVG';
 import { BloomRadar } from '../../components/shared/BloomRadar';
+import { DIKWPyramid } from '../../components/shared/DIKWPyramid';
+import { getDIKWFromBloomScores } from '@leap/shared';
 import { VelocitySVG } from '../../components/shared/VelocitySVG';
 import { KGCircleNodes } from '../../components/shared/KGCircleNodes';
 import { getMasteryColor } from '../../lib/utils';
@@ -343,37 +345,40 @@ export function ClassAnalyticsPage() {
             </div>
           </div>
 
-          {/* Gate Status Cards */}
-          <div>
+          {/* DIKW Distribution */}
+          <div className="card p-4">
             <h3 className="section-header mb-3 flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-leap-blue inline-block" />
-              Gate Progress
+              <span className="w-2 h-2 rounded-full bg-purple-500 inline-block" />
+              DIKW Learning Progression
             </h3>
-            <div className="grid grid-cols-3 gap-3">
-              {sa.gates_status.map(g => (
-                <div key={g.gate_id} className="card p-4" style={g.status === 'locked' ? { opacity: 0.5 } : {}}>
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-2">
-                      <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-[11px] font-bold" style={{ background: g.color }}>G{g.gate_number}</div>
-                      <div>
-                        <p className="text-sm font-bold text-gray-900">{g.short_title}</p>
-                        <p className="text-[10px] text-gray-500">{g.completed_sessions}/{g.sessions_in_gate} sessions</p>
-                      </div>
-                    </div>
-                    <span className={`badge ${
-                      g.status === 'completed' ? 'bg-green-100 text-green-700' :
-                      g.status === 'in_progress' ? 'bg-blue-100 text-blue-700' :
-                      g.status === 'unlocked' ? 'bg-gray-100 text-gray-600' :
-                      'bg-gray-100 text-gray-400'
-                    }`}>
-                      {g.status === 'locked' ? '🔒 ' : ''}{g.status.replace('_', ' ')}
-                    </span>
+            <p className="text-[10px] text-gray-400 mb-3">Where your class sits on the Data → Wisdom journey</p>
+            <div className="grid grid-cols-4 gap-3">
+              {[
+                { level: 'Data', desc: 'Recall facts', color: '#3B82F6', bg: '#DBEAFE' },
+                { level: 'Information', desc: 'Understand meaning', color: '#10B981', bg: '#DCFCE7' },
+                { level: 'Knowledge', desc: 'Apply & analyze', color: '#F59E0B', bg: '#FEF3C7' },
+                { level: 'Wisdom', desc: 'Judge & create', color: '#8B5CF6', bg: '#EDE9FE' },
+              ].map(d => {
+                // Compute from bloom dist: map bloom levels to DIKW
+                const bloomMap: Record<string, string> = { remember: 'Data', understand: 'Information', apply: 'Knowledge', analyze: 'Knowledge', evaluate: 'Wisdom', create: 'Wisdom' };
+                const gateAvgs = heatmap.gates.map(g => g.avg);
+                const overallAvg = gateAvgs.length > 0 ? Math.round(gateAvgs.reduce((a, b) => a + b, 0) / gateAvgs.length) : 0;
+                // Simple estimation based on overall mastery
+                const dikwEstimate: Record<string, number> = {
+                  Data: Math.min(100, overallAvg + 15),
+                  Information: overallAvg,
+                  Knowledge: Math.max(0, overallAvg - 12),
+                  Wisdom: Math.max(0, overallAvg - 25),
+                };
+                const score = dikwEstimate[d.level] || 0;
+                return (
+                  <div key={d.level} className="rounded-xl p-3 text-center" style={{ background: d.bg }}>
+                    <p className="text-xl font-black" style={{ color: d.color }}>{score}%</p>
+                    <p className="text-[11px] font-bold" style={{ color: d.color }}>{d.level}</p>
+                    <p className="text-[9px] text-gray-500">{d.desc}</p>
                   </div>
-                  <div className="bg-gray-100 rounded-full h-1.5 overflow-hidden">
-                    <div className="h-full rounded-full transition-all" style={{ width: `${(g.completed_sessions / g.sessions_in_gate) * 100}%`, background: g.color }} />
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
 
@@ -470,6 +475,16 @@ export function ClassAnalyticsPage() {
                       <div className="flex items-center gap-2 mt-0.5">
                         <span className="text-[10px] font-bold" style={{ color: session.gate_color }}>G{session.gate_number}</span>
                         <span className="text-[10px] text-gray-400">Session {session.session_number}</span>
+                        {(() => {
+                          // Compute DIKW from gate position
+                          const totalGates = sa.gates_status.length || 1;
+                          const gateIdx = sa.gates_status.findIndex(g => g.gate_number === session.gate_number);
+                          const ratio = totalGates > 1 ? gateIdx / (totalGates - 1) : 0.5;
+                          const dikw = ratio <= 0.25 ? 'Data' : ratio <= 0.5 ? 'Information' : ratio <= 0.75 ? 'Knowledge' : 'Wisdom';
+                          const colors: Record<string, { bg: string; text: string }> = { Data: { bg: '#DBEAFE', text: '#1E40AF' }, Information: { bg: '#DCFCE7', text: '#166534' }, Knowledge: { bg: '#FEF3C7', text: '#92400E' }, Wisdom: { bg: '#EDE9FE', text: '#5B21B6' } };
+                          const c = colors[dikw];
+                          return <span className="text-[8px] font-bold px-1.5 py-0.5 rounded-full" style={{ background: c.bg, color: c.text }}>{dikw}</span>;
+                        })()}
                       </div>
                     </div>
                   </div>
@@ -707,11 +722,17 @@ export function ClassAnalyticsPage() {
                       </div>
                     </div>
                     {studentDetail.bloom_profile && Object.keys(studentDetail.bloom_profile).length > 0 && (
-                      <div className="mb-3 flex justify-center">
-                        <BloomRadar
-                          data={Object.fromEntries(Object.entries(studentDetail.bloom_profile).map(([k, v]) => [k.charAt(0).toUpperCase() + k.slice(1), v]))}
-                          color="#1B3A6B" size={180}
-                        />
+                      <div className="mb-3">
+                        <div className="flex justify-center mb-2">
+                          <BloomRadar
+                            data={Object.fromEntries(Object.entries(studentDetail.bloom_profile).map(([k, v]) => [k.charAt(0).toUpperCase() + k.slice(1), v]))}
+                            color="#1B3A6B" size={170}
+                          />
+                        </div>
+                        <p className="text-[9px] font-bold text-gray-400 uppercase mb-1.5 text-center">DIKW Level</p>
+                        <div className="flex justify-center">
+                          <DIKWPyramid scores={getDIKWFromBloomScores(studentDetail.bloom_profile as Record<string, number>)} size={150} />
+                        </div>
                       </div>
                     )}
                     {studentDetail.gate_progress?.length > 0 && (

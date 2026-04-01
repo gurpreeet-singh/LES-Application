@@ -28,6 +28,7 @@ export function Navbar() {
     { to: '/student', label: 'Dashboard', exact: true },
     { to: '/student/guide', label: 'Guide' },
   ];
+  // Note: "Lessons" link is per-course, shown on dashboard
 
   const adminLinks = [
     { to: '/admin', label: 'Today', exact: true },

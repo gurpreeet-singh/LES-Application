@@ -1,4 +1,5 @@
-export type CourseStatus = 'draft' | 'processing' | 'review' | 'active' | 'archived';
+export type CourseStatus = 'draft' | 'processing' | 'structure_ready' | 'review' | 'active' | 'archived';
+export type GenerationMode = 'batch' | 'progressive';
 export type LLMProvider = 'anthropic' | 'openai';
 
 export interface Course {
@@ -20,6 +21,8 @@ export interface Course {
   processing_started_at?: string;
   processing_completed_at?: string;
   processing_error?: string;
+  generation_mode?: GenerationMode;
+  current_session_number?: number;
   created_at: string;
   updated_at: string;
 }

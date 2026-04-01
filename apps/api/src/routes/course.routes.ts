@@ -8,6 +8,7 @@ import { createLLMProvider } from '../services/llm/provider.js';
 import { SessionPlannerService } from '../services/session-planner.service.js';
 import { detectCrossCourseEdges } from '../services/cross-course-detection.service.js';
 import { llmLimit } from '../middleware/rate-limit.js';
+import { ProgressiveGenerationService } from '../services/progressive-generation.service.js';
 
 const syllabusUpload = multer({
   storage: multer.memoryStorage(),
@@ -23,7 +24,7 @@ const router = Router();
 // GET /courses — list only, excludes large syllabus_text field
 router.get('/', async (req: Request, res: Response) => {
   const user = req.user!;
-  const fields = 'id,teacher_id,title,subject,class_level,section,academic_year,status,llm_provider,mastery_threshold,total_sessions,session_duration_minutes,processing_error,processing_started_at,created_at,updated_at';
+  const fields = 'id,teacher_id,title,subject,class_level,section,academic_year,status,llm_provider,mastery_threshold,total_sessions,session_duration_minutes,processing_error,processing_started_at,generation_mode,current_session_number,created_at,updated_at';
   let query;
 
   if (user.role === 'teacher') {
@@ -336,7 +337,12 @@ router.post('/:id/process', requireRole('teacher'), llmLimit, async (req: Reques
     .update({ status: 'processing', processing_started_at: new Date().toISOString(), processing_error: null })
     .eq('id', course.id);
 
-  res.json({ message: 'Processing started', status: 'processing' });
+  const generationMode = req.body?.generation_mode || 'batch';
+
+  // Update course with generation mode
+  await supabaseAdmin.from('courses').update({ generation_mode: generationMode }).eq('id', course.id);
+
+  res.json({ message: 'Processing started', status: 'processing', generation_mode: generationMode });
 
   // Process in background (non-blocking)
   const provider = createLLMProvider(course.llm_provider || 'anthropic');
@@ -349,6 +355,7 @@ router.post('/:id/process', requireRole('teacher'), llmLimit, async (req: Reques
     course.total_sessions || undefined,
     course.session_duration_minutes || undefined,
     course.class_level || undefined,
+    generationMode as 'batch' | 'progressive',
   ).then(async () => {
     console.log(`Deconstruction complete for course ${course.id}`);
 
@@ -371,6 +378,52 @@ router.post('/:id/process', requireRole('teacher'), llmLimit, async (req: Reques
   });
 });
 
+// POST /courses/:id/generate-next-session — Progressive: generate one session
+router.post('/:id/generate-next-session', requireRole('teacher'), llmLimit, async (req: Request, res: Response) => {
+  const { data: course } = await supabaseAdmin
+    .from('courses').select('*').eq('id', req.params.id).eq('teacher_id', req.user!.id).single();
+
+  if (!course) { res.status(404).json({ error: 'Course not found' }); return; }
+  if (!['structure_ready', 'active'].includes(course.status)) { res.status(400).json({ error: `Course must be active to generate sessions (currently: ${course.status})` }); return; }
+
+  // If structure_ready, auto-activate first
+  if (course.status === 'structure_ready') {
+    await supabaseAdmin.from('courses').update({ status: 'active' }).eq('id', course.id);
+  }
+
+  try {
+    const provider = createLLMProvider(course.llm_provider || 'anthropic');
+    const service = new ProgressiveGenerationService(provider, supabaseAdmin);
+    const result = await service.generateNextSession(course.id, req.body?.teacher_feedback);
+    res.json(result);
+  } catch (err: any) {
+    console.error('Progressive generation error:', err.message);
+    res.status(500).json({ error: err.message || 'Failed to generate session' });
+  }
+});
+
+// POST /courses/:id/generate-all-remaining — Progressive: batch generate all
+router.post('/:id/generate-all-remaining', requireRole('teacher'), llmLimit, async (req: Request, res: Response) => {
+  const { data: course } = await supabaseAdmin
+    .from('courses').select('*').eq('id', req.params.id).eq('teacher_id', req.user!.id).single();
+
+  if (!course) { res.status(404).json({ error: 'Course not found' }); return; }
+  if (!['structure_ready', 'active'].includes(course.status)) { res.status(400).json({ error: 'Course must be active' }); return; }
+
+  if (course.status === 'structure_ready') {
+    await supabaseAdmin.from('courses').update({ status: 'active' }).eq('id', course.id);
+  }
+
+  res.json({ message: 'Generating all remaining sessions — check Railway logs for progress' });
+
+  // Run in background
+  const provider = createLLMProvider(course.llm_provider || 'anthropic');
+  const service = new ProgressiveGenerationService(provider, supabaseAdmin);
+  service.generateAllRemaining(course.id)
+    .then(results => console.log(`Progressive batch: generated ${results.length} sessions for course ${course.id}`))
+    .catch(err => console.error(`Progressive batch failed: ${err.message}`));
+});
+
 // POST /courses/:id/finalize
 router.post('/:id/finalize', requireRole('teacher'), async (req: Request, res: Response) => {
   const { data: course, error } = await supabaseAdmin
@@ -385,8 +438,8 @@ router.post('/:id/finalize', requireRole('teacher'), async (req: Request, res: R
     return;
   }
 
-  if (course.status !== 'review') {
-    res.status(400).json({ error: 'Course must be in review status to finalize' });
+  if (!['review', 'structure_ready'].includes(course.status)) {
+    res.status(400).json({ error: 'Course must be in review or structure_ready status to finalize' });
     return;
   }
 

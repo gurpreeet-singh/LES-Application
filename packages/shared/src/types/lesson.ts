@@ -10,11 +10,14 @@ export interface Lesson {
   key_idea?: string;
   conceptual_breakthrough?: string;
   bloom_levels: string[];
+  dikw_level?: 'data' | 'information' | 'knowledge' | 'wisdom';
   examples?: LessonExample[];
   exercises?: LessonExercise[];
   duration_minutes: number;
   status: LessonStatus;
   teacher_notes?: string;
+  teacher_feedback?: string;
+  session_scores_summary?: any;
   sort_order: number;
   created_at: string;
   updated_at: string;

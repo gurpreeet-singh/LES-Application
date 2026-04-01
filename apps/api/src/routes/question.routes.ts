@@ -151,8 +151,9 @@ ${avgMastery > 80 ? 'Students are performing well — increase difficulty, add m
     const gate = lesson.gate as any;
     const subConcepts = (gate?.sub_concepts || []).map((sc: any) => sc.title || sc);
 
-    // Get course class_level for age-appropriate question generation
+    // Get course class_level and total lessons for DIKW-aware question generation
     const { data: courseData } = await supabaseAdmin.from('courses').select('class_level').eq('id', courseId).single();
+    const { count: totalLessons } = await supabaseAdmin.from('lessons').select('id', { count: 'exact', head: true }).eq('course_id', courseId);
 
     const { buildQuizGenerationPrompt } = await import('@leap/shared');
     const { system, user } = buildQuizGenerationPrompt([{
@@ -163,7 +164,7 @@ ${avgMastery > 80 ? 'Students are performing well — increase difficulty, add m
       bloom_levels: lesson.bloom_levels || ['remember', 'understand'],
       gate_title: gate?.title || gate?.short_title || '',
       sub_concepts: subConcepts,
-    }], courseData?.class_level || undefined);
+    }], courseData?.class_level || undefined, totalLessons || undefined);
 
     const rawResponse = await provider.complete({
       systemPrompt: system + pastContext,

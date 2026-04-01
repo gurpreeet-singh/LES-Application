@@ -1,6 +1,6 @@
 # LEAP Platform — All System Prompts
 
-> Last updated: 2026-03-31
+> Last updated: 2026-04-02
 > Source files: `packages/shared/src/constants/`
 
 ---
@@ -15,6 +15,9 @@
 6. [Grading Prompt](#6-grading-prompt)
 7. [Adaptive Suggestion Prompt](#7-adaptive-suggestion-prompt)
 8. [Answer Sheet Extraction Prompt](#8-answer-sheet-extraction-prompt)
+9. [Progressive Session Generation Prompt](#9-progressive-session-generation-prompt)
+10. [Diagnostic Assessment Questions](#10-diagnostic-assessment-questions)
+11. [DIKW Constants & Framework](#11-dikw-constants--framework)
 
 ---
 
@@ -480,4 +483,237 @@ OR: Teacher uploads answer sheets → [EXTRACTION PROMPT]
         ↓
 Analytics accumulate → [SUGGESTION PROMPT]
   Haiku analyzes patterns → generates adaptive recommendations for teacher
+
+  ↓ (Progressive Mode — iterative loop)
+[PROGRESSIVE SESSION PROMPT + CLASS PROFILE]
+  Session N outcomes → Haiku generates Session N+1
+  Includes: previous performance, misconceptions, teacher feedback, class diagnostic profile
+        ↓
+  Repeat: Teach → Assess → Adapt → Generate
+```
+
+---
+
+## 9. Progressive Session Generation Prompt
+
+**File:** `progressive-session-prompt.ts`
+**Used by:** `progressive-generation.service.ts` when generating one session at a time
+**Model:** Claude Haiku (FAST tier)
+**Triggered by:** Teacher clicks "Generate Session N" on course detail page
+
+### What the AI Receives
+
+```
+Role: Expert curriculum architect generating ONE lesson for a progressive, adaptive course.
+Each session builds directly on the previous session's outcomes.
+
+ADAPTATION RULES:
+- Previous performance LOW (<60%): Revisit, scaffold, lower Bloom, more examples
+- Previous performance MODERATE (60-85%): Proceed normally, address misconceptions
+- Previous performance HIGH (>85%): Accelerate, higher Bloom, challenge problems
+- Teacher feedback: HIGHEST PRIORITY — overrides data
+
+WORKED EXAMPLE FADING:
+- Early course (0-30%): 3-4 detailed worked examples + 1-2 exercises
+- Mid course (30-70%): 2 examples + 2-3 exercises (completion tasks)
+- Late course (70-100%): 1 example + 3-4 exercises/challenges
+
+SOCRATIC SCRIPT STYLE (varies by DIKW level):
+- Data: Teacher-led explanation → Guided Practice → Check Understanding
+- Information: Guided exploration → Concept Build → Practice
+- Knowledge: Discovery → Concept Build → Application + [TPS] discussion
+- Wisdom: Dilemma → Debate → Synthesis → Position Defense + [TPS] x2
+```
+
+### Data Points Fed Per Session
+
+| Data Point | Source | Purpose |
+|---|---|---|
+| Previous lesson plan | `lessons` table | What was taught — avoid repetition |
+| Class average score | `question_attempts` | Adjust difficulty up/down |
+| Bloom distribution | `question_attempts.bloom_level_demonstrated` | Which cognitive levels students reached |
+| Top 5 misconceptions | `question_attempts.misconceptions` | Address specific errors in next lesson |
+| At-risk students | Students <60% average | Include scaffolded exercises |
+| Teacher feedback | Free text input | Highest priority — overrides data |
+| Gate context | `gates` table | Topic scope, sub-concepts |
+| DIKW target | Position-based calculation | Script style, question distribution |
+| Remaining sub-concepts | Computed from covered vs total | Pacing |
+| Class diagnostic profile | `learning_profiles` aggregated | Class-wide learning style adaptation |
+
+### Class Diagnostic Profile (Aggregated)
+
+When students have completed the diagnostic assessment, the prompt also receives:
+
+```
+CLASS LEARNING PROFILE (from diagnostic assessment of 15/30 students):
+- Dominant learning strategy: 45% are "surface" learners
+  (surface: 7, deep: 4, competent: 2, struggling: 2)
+- Average prior knowledge: 38% — LOW: Do not assume prerequisites
+- Dominant learning style: visual (72%)
+  (Full: logical=55%, visual=72%, reflective=48%, kinesthetic=60%, auditory=45%)
+- Struggling students: 2 need immediate scaffolding
+
+ADAPT YOUR LESSON:
+- Surface learners → explicit step-by-step, worked examples, clear connections
+- Visual dominant → diagrams, charts, mind maps, visual analogies
+- Low prior knowledge → start with basics, don't assume prerequisites
+```
+
+### Output
+
+The AI generates:
+1. **1 Lesson** — title, objective, key_idea, examples (faded), exercises, bloom_levels, dikw_level
+2. **1 Socratic Script** — 4 stages adapted to DIKW level, with [TPS] at Knowledge/Wisdom
+3. **10 Quiz Questions** — distribution shifted by position + 2 interleaved review Qs after Session 3
+
+---
+
+## 10. Diagnostic Assessment Questions
+
+**File:** `diagnostic-questions.ts`
+**Used by:** `diagnostic.routes.ts` — served to students at enrollment
+**No LLM needed** — template questions with algorithmic scoring
+
+### 20 Questions Across 4 Sections
+
+| Section | Questions | What It Measures | Maps To |
+|---|---|---|---|
+| **Prior Knowledge** (Q1-5) | "Can you recall main topics?", "Could you explain the basics?", "How confident connecting ideas?" | Subject baseline (0-100%) | `learning_profiles.prior_knowledge_score` |
+| **Cognitive Readiness** (Q6-10) | Bloom ladder: recall → explain → apply → compare → evaluate | Highest Bloom level (remember→evaluate) | `learning_profiles.bloom_ceiling` |
+| **Learning Strategy** (Q11-15) | "When stuck, do you: re-read / try problems / ask someone / draw diagram?" | Surface / Deep / Competent / Struggling | `learning_profiles.strategy_profile` |
+| **Processing Preference** (Q16-20) | "Which explanation helps most: text / diagram / example / audio?" | 5 dimensions (0-100 each) | `learning_profiles.{logical,visual,reflective,kinesthetic,auditory}` |
+
+### Scoring Algorithm
+
+```
+Prior Knowledge = avg score of Q1-5 (strong=100, moderate=65, weak=30, none=0)
+Bloom Ceiling = highest Q6-10 answered "yes" (remember → evaluate)
+Strategy Profile:
+  Q14 + Q15 primary signals:
+  - "remember similar example" + "check answer, move on" → surface
+  - "break into parts" + "understand WHY wrong" → deep
+  - "try different approaches" + "redo differently" → competent
+  - "feel stuck" + "frustrated, skip" → struggling
+Learning Dimensions:
+  Q11-13 + Q16-20 map to: logical, visual, reflective, kinesthetic, auditory
+  Each matching answer adds +15 to that dimension
+  Normalized: strongest=80-100%, weakest=20-40%
+```
+
+### Student-Facing Results (No Labels)
+
+Student sees encouraging summary:
+- "Strong foundation" / "Some background" / "Starting fresh — that's okay!"
+- "You learn best through visual approaches"
+- "Ready for advanced challenges" / "Building your foundation"
+
+Student does NOT see: "surface learner", "struggling" — those are teacher-only.
+
+---
+
+## 11. DIKW Constants & Framework
+
+**File:** `bloom.ts` (extended)
+
+### DIKW Mapping
+
+```
+Bloom Level → DIKW Level
+  remember    → Data
+  understand  → Information
+  apply       → Knowledge
+  analyze     → Knowledge
+  evaluate    → Wisdom
+  create      → Wisdom
+```
+
+### DIKW Colors
+
+```
+Data:        Blue   (#3B82F6 solid, #DBEAFE bg)
+Information: Green  (#10B981 solid, #DCFCE7 bg)
+Knowledge:   Amber  (#F59E0B solid, #FEF3C7 bg)
+Wisdom:      Purple (#8B5CF6 solid, #EDE9FE bg)
+```
+
+### DIKW Coaching Prompts (per level)
+
+```
+Data:        "Can you repeat that in your own words?"
+             "What are the key facts here?"
+Information: "Why does this happen?"
+             "How does this connect to what we learned before?"
+Knowledge:   "What would happen if we changed this?"
+             "Can you find another way to solve this?"
+Wisdom:      "Do you agree with this approach? Why?"
+             "Who benefits and who loses from this decision?"
+```
+
+### Position-Based DIKW Level
+
+```
+getDIKWLevelByPosition(lessonNumber, totalLessons):
+  0-25%  → Data
+  25-50% → Information
+  50-75% → Knowledge
+  75-100% → Wisdom
+```
+
+### Mastery Progression Levels
+
+```
+getMasteryLevel(masteryPct):
+  ≥80% → Mastered   (green)
+  ≥60% → Proficient  (blue)
+  ≥30% → Familiar    (amber)
+  ≥1%  → Attempted   (gray)
+  0%   → Not Started (light gray)
+```
+
+### Learner Strategy Profiles
+
+```
+competent:    Uses flexible strategies, self-monitors, adapts approach
+deep:         Seeks understanding, connects ideas, developing metacognition
+surface:      Relies on memorization, needs scaffolding for higher-order thinking
+struggling:   Low across multiple dimensions, needs immediate intervention
+not_assessed: Diagnostic assessment not yet completed
+```
+
+---
+
+## Complete Prompt Flow (Updated)
+
+```
+Teacher uploads syllabus
+        ↓
+[DECONSTRUCTION PROMPT + CLASS DIRECTIVE + DIKW PROGRESSION]
+  Phase 1 (Sonnet): Structure → gates, concepts, Bloom, DIKW tagging
+  Phase 2 (Haiku):  Lessons + DIKW-adapted Socratic scripts (batch mode)
+  OR: Progressive mode → structure only, no lessons yet
+        ↓
+Students enrolled → [DIAGNOSTIC ASSESSMENT]
+  20 questions → strategy profile + learning dimensions + prior knowledge
+  Results saved to learning_profiles table
+        ↓
+Teacher reviews structure → clicks "Generate Session 1"
+        ↓
+[PROGRESSIVE SESSION PROMPT + CLASS DIAGNOSTIC PROFILE]
+  Haiku generates 1 lesson + 1 script + 10 questions
+  Adapted to: DIKW level, class profile, worked example fading
+        ↓
+Students take quiz → [BLOOM-GATED ADAPTIVE QUIZ]
+  Questions served: Remember first → Create last (at student's level)
+        ↓
+Student submits → [GRADING PROMPT (process-focused)]
+  Haiku grades with reasoning: "Your error was in step 2, you used wrong rule"
+        ↓
+Scores captured → misconceptions + bloom distribution → teacher adds feedback
+        ↓
+[PROGRESSIVE SESSION PROMPT + PREVIOUS OUTCOMES + CLASS PROFILE]
+  Session N+1 generated from Session N data
+  Includes: class avg, misconceptions, at-risk students, teacher feedback,
+            class diagnostic profile (learning styles, strategy distribution)
+        ↓
+Repeat: Teach → Assess → Adapt → Generate
 ```
