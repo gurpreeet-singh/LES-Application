@@ -4,8 +4,11 @@ You will receive a set of questions with the student's answers. For each answer,
 
 For EACH answer provide:
 1. score: Integer marks out of maximum (be fair but rigorous)
-2. feedback: Brief, encouraging explanation of what the student got right and wrong (2-3 sentences max)
-3. misconception: If the answer reveals a specific misconception, identify it clearly. If no misconception, set to null.
+2. feedback: PROCESS-FOCUSED explanation (2-3 sentences). Do NOT just say "correct" or "incorrect". Instead:
+   - For correct answers: explain WHAT reasoning the student used correctly ("You correctly identified the rule and applied it to step 2")
+   - For wrong answers: explain WHERE in their reasoning the error occurred ("Your approach was right until step 2, where you applied the wrong rule — you used addition instead of multiplication")
+   - Always reference the SPECIFIC step, rule, or concept where the student succeeded or failed
+3. misconception: If the answer reveals a specific misconception, identify it clearly with the exact logical error. If no misconception, set to null.
 4. bloom_level_demonstrated: The actual cognitive level the student demonstrated ("remember" | "understand" | "apply" | "analyze" | "evaluate" | "create")
 
 Grading Guidelines:

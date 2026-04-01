@@ -7,7 +7,10 @@ import { generateQuizSheetPDF, generateAnswerKeyPDF } from '../../lib/quizPdfGen
 import { useAuth } from '../../context/AuthContext';
 
 import { LessonAnalysis } from '../../components/teacher/LessonAnalysis';
+import { DIKWBadgeFromBloom } from '../../components/shared/DIKWBadge';
+import { getDIKWLevel, getDIKWLevelByPosition, DIKW_COACHING_PROMPTS } from '@leap/shared';
 type Tab = 'plan' | 'socratic' | 'quiz' | 'media' | 'analysis';
+type QuizMode = 'review' | 'interactive';
 
 function downloadCSV(questions: any[], lessonTitle: string) {
   const headers = ['#', 'Question', 'Type', 'Bloom Level', 'Correct Answer', 'Options', 'Rubric'];
@@ -100,6 +103,26 @@ export function LessonDetailPage() {
 
   const [generatingQuiz, setGeneratingQuiz] = useState(false);
 
+  // Interactive quiz state
+  const [quizMode, setQuizMode] = useState<QuizMode>('review');
+  const [quizIdx, setQuizIdx] = useState(0);
+  const [quizAnswers, setQuizAnswers] = useState<Record<number, string>>({});
+  const [quizRevealed, setQuizRevealed] = useState<Record<number, boolean>>({});
+  const quizScore = Object.entries(quizRevealed).filter(([i, revealed]) => {
+    if (!revealed) return false;
+    const q = questions[Number(i)];
+    const ans = quizAnswers[Number(i)];
+    if (q?.options?.length) return q.options.find((o: any) => o.is_correct)?.text === ans;
+    return false;
+  }).length;
+
+  // Chatbot state
+  const [chatOpen, setChatOpen] = useState(false);
+  const [chatMessages, setChatMessages] = useState<{ role: 'user' | 'assistant'; content: string }[]>([]);
+  const [chatInput, setChatInput] = useState('');
+  const [chatLoading, setChatLoading] = useState(false);
+  const chatEndRef = useRef<HTMLDivElement>(null);
+
   const handleGenerateQuiz = async (force = false) => {
     setGeneratingQuiz(true);
     try {
@@ -172,6 +195,7 @@ export function LessonDetailPage() {
               </span>
             )}
             {lesson.bloom_levels?.map((bl: string) => <BloomBadge key={bl} level={bl} />)}
+            <DIKWBadgeFromBloom bloomLevels={lesson.bloom_levels || []} size="md" />
             <span className="badge bg-gray-100 text-gray-500">{lesson.duration_minutes} min</span>
           </div>
         </div>
@@ -297,10 +321,33 @@ export function LessonDetailPage() {
             </div>
           ) : (
             <div className="space-y-4">
+              {/* DIKW Script Style Banner */}
+              {(() => {
+                const dikwLevel = getDIKWLevel(lesson.bloom_levels || []);
+                const styles: Record<string, { label: string; desc: string; color: string; bg: string }> = {
+                  data: { label: 'Data-Style Script', desc: 'Teacher-led explanation — focus on clear delivery of facts and definitions', color: '#1E40AF', bg: '#DBEAFE' },
+                  information: { label: 'Information-Style Script', desc: 'Guided exploration — students connect ideas and build understanding', color: '#166534', bg: '#DCFCE7' },
+                  knowledge: { label: 'Knowledge-Style Script', desc: 'Discovery-based — students find patterns through guided problem-solving', color: '#92400E', bg: '#FEF3C7' },
+                  wisdom: { label: 'Wisdom-Style Script', desc: 'Debate-driven — students defend positions, evaluate claims, and synthesize ideas', color: '#5B21B6', bg: '#EDE9FE' },
+                };
+                const s = styles[dikwLevel];
+                return (
+                  <div className="rounded-xl p-3 flex items-center gap-3" style={{ background: s.bg }}>
+                    <DIKWBadgeFromBloom bloomLevels={lesson.bloom_levels || []} size="md" />
+                    <div>
+                      <p className="text-[12px] font-bold" style={{ color: s.color }}>{s.label}</p>
+                      <p className="text-[10px]" style={{ color: s.color, opacity: 0.7 }}>{s.desc}</p>
+                    </div>
+                  </div>
+                );
+              })()}
+
               <div className="card p-4">
                 <div className="flex items-center justify-between">
                   <h3 className="section-header">Teaching Script Timeline</h3>
-                  <span className="badge bg-purple-100 text-purple-700">{totalScriptDuration} min total</span>
+                  <div className="flex items-center gap-2">
+                    <span className="badge bg-purple-100 text-purple-700">{totalScriptDuration} min total</span>
+                  </div>
                 </div>
                 {/* Timeline progress bar */}
                 <div className="flex gap-1 mt-3">
@@ -358,6 +405,25 @@ export function LessonDetailPage() {
               ))}
             </div>
           )}
+
+          {/* Thinking Coach — universal probing questions by DIKW level */}
+          {lesson.bloom_levels && (
+            <div className="card p-4 mt-4 border-l-4 border-l-purple-400">
+              <h3 className="section-header mb-2 flex items-center gap-2">
+                <span className="text-lg">🧠</span> Thinking Coach Prompts
+                <DIKWBadgeFromBloom bloomLevels={lesson.bloom_levels || []} />
+              </h3>
+              <p className="text-[10px] text-gray-400 mb-3">Use these universal questions to push students deeper — works alongside the Socratic script above.</p>
+              <div className="space-y-2">
+                {(DIKW_COACHING_PROMPTS[getDIKWLevel(lesson.bloom_levels || [])] || []).map((q: string, i: number) => (
+                  <div key={i} className="flex items-start gap-2 bg-purple-50 rounded-lg p-2.5">
+                    <span className="text-purple-500 font-bold text-sm shrink-0">?</span>
+                    <p className="text-[12px] text-purple-900 italic">"{q}"</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -378,33 +444,213 @@ export function LessonDetailPage() {
               <div className="card p-4 flex items-center justify-between">
                 <div>
                   <h3 className="section-header">Quiz — {gate?.short_title || 'Assessment'}</h3>
-                  <p className="text-[11px] text-gray-500 mt-0.5">{questions.length} questions across Bloom levels</p>
+                  <p className="text-[11px] text-gray-500 mt-0.5">{questions.length} questions across Bloom levels <DIKWBadgeFromBloom bloomLevels={questions.map((q: any) => q.bloom_level).filter(Boolean)} /></p>
+                  {/* DIKW distribution mini-bar */}
+                  {(() => {
+                    const dikwCounts: Record<string, number> = { Data: 0, Information: 0, Knowledge: 0, Wisdom: 0 };
+                    const map: Record<string, string> = { remember: 'Data', understand: 'Information', apply: 'Knowledge', analyze: 'Knowledge', evaluate: 'Wisdom', create: 'Wisdom' };
+                    questions.forEach((q: any) => { if (q.bloom_level && map[q.bloom_level]) dikwCounts[map[q.bloom_level]]++; });
+                    const total = questions.length || 1;
+                    const colors: Record<string, string> = { Data: '#3B82F6', Information: '#10B981', Knowledge: '#F59E0B', Wisdom: '#8B5CF6' };
+                    return (
+                      <div className="flex items-center gap-1 mt-1.5">
+                        {Object.entries(dikwCounts).filter(([, c]) => c > 0).map(([level, count]) => (
+                          <div key={level} className="flex items-center gap-1" style={{ flex: count }}>
+                            <div className="h-1.5 rounded-full w-full" style={{ background: colors[level] }} />
+                            <span className="text-[8px] font-bold shrink-0" style={{ color: colors[level] }}>{level[0]}:{count}</span>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })()}
                 </div>
                 <div className="flex gap-2 flex-wrap">
-                  <Link to={`/teacher/courses/${courseId}/lessons/${lessonId}/scores`} className="btn-primary text-[11px] py-1.5">📊 Enter Scores</Link>
-                  <button onClick={() => handleGenerateQuiz(true)} disabled={generatingQuiz} className="btn-secondary text-[11px] py-1.5">
-                    {generatingQuiz ? '🤖 Generating...' : '🔄 Regenerate Quiz'}
+                  {/* Mode toggle */}
+                  <button
+                    onClick={() => { setQuizMode(quizMode === 'review' ? 'interactive' : 'review'); setQuizIdx(0); setQuizAnswers({}); setQuizRevealed({}); }}
+                    className={quizMode === 'interactive' ? 'btn-primary text-[11px] py-1.5' : 'btn-secondary text-[11px] py-1.5 border-purple-300 text-purple-700 hover:bg-purple-50'}
+                  >
+                    {quizMode === 'interactive' ? '← Back to Review' : '▶ Take Interactive Quiz'}
                   </button>
-                  <button onClick={() => generateQuizSheetPDF(questions, {
-                    lessonNumber: lesson.lesson_number, lessonTitle: lesson.title,
-                    gateName: gate ? `G${gate.gate_number}: ${gate.short_title}` : '', gateColor: gate?.color || '#1B3A6B',
-                    subject: 'Mathematics', classLevel: '5', section: 'B',
-                    teacherName: profile?.full_name || 'Teacher', schoolName: 'La Martiniere Girls\' College',
-                    duration: lesson.duration_minutes || 40,
-                  })} className="btn-primary text-[11px] py-1.5">🖨️ Print Quiz Sheet</button>
-                  <button onClick={() => generateAnswerKeyPDF(questions, {
-                    lessonNumber: lesson.lesson_number, lessonTitle: lesson.title,
-                    gateName: gate ? `G${gate.gate_number}: ${gate.short_title}` : '', gateColor: gate?.color || '#1B3A6B',
-                    subject: 'Mathematics', classLevel: '5', section: 'B',
-                    teacherName: profile?.full_name || 'Teacher', schoolName: 'La Martiniere Girls\' College',
-                    duration: lesson.duration_minutes || 40,
-                  })} className="btn-secondary text-[11px] py-1.5">🔑 Answer Key</button>
-                  <button onClick={handleDownloadCSV} className="btn-secondary text-[11px] py-1.5">📊 CSV/Excel</button>
-                  <Link to={`/teacher/courses/${courseId}/lessons/${lessonId}/grade`} className="btn-secondary text-[11px] py-1.5">📷 Upload Answer Sheets</Link>
+                  {quizMode === 'review' && (
+                    <>
+                      <Link to={`/teacher/courses/${courseId}/lessons/${lessonId}/scores`} className="btn-primary text-[11px] py-1.5">📊 Enter Scores</Link>
+                      <button onClick={() => handleGenerateQuiz(true)} disabled={generatingQuiz} className="btn-secondary text-[11px] py-1.5">
+                        {generatingQuiz ? '🤖 Generating...' : '🔄 Regenerate Quiz'}
+                      </button>
+                      <button onClick={() => generateQuizSheetPDF(questions, {
+                        lessonNumber: lesson.lesson_number, lessonTitle: lesson.title,
+                        gateName: gate ? `G${gate.gate_number}: ${gate.short_title}` : '', gateColor: gate?.color || '#1B3A6B',
+                        subject: 'Mathematics', classLevel: '5', section: 'B',
+                        teacherName: profile?.full_name || 'Teacher', schoolName: 'La Martiniere Girls\' College',
+                        duration: lesson.duration_minutes || 40,
+                      })} className="btn-primary text-[11px] py-1.5">🖨️ Print Quiz Sheet</button>
+                      <button onClick={() => generateAnswerKeyPDF(questions, {
+                        lessonNumber: lesson.lesson_number, lessonTitle: lesson.title,
+                        gateName: gate ? `G${gate.gate_number}: ${gate.short_title}` : '', gateColor: gate?.color || '#1B3A6B',
+                        subject: 'Mathematics', classLevel: '5', section: 'B',
+                        teacherName: profile?.full_name || 'Teacher', schoolName: 'La Martiniere Girls\' College',
+                        duration: lesson.duration_minutes || 40,
+                      })} className="btn-secondary text-[11px] py-1.5">🔑 Answer Key</button>
+                      <button onClick={handleDownloadCSV} className="btn-secondary text-[11px] py-1.5">📊 CSV/Excel</button>
+                      <Link to={`/teacher/courses/${courseId}/lessons/${lessonId}/grade`} className="btn-secondary text-[11px] py-1.5">📷 Upload Answer Sheets</Link>
+                    </>
+                  )}
                 </div>
               </div>
 
-              {questions.map((q: any, qi: number) => (
+              {/* ═══ INTERACTIVE QUIZ MODE ═══ */}
+              {quizMode === 'interactive' && (() => {
+                const totalQ = questions.length;
+                const allDone = Object.keys(quizRevealed).length === totalQ;
+                const q = questions[quizIdx];
+                if (!q) return null;
+                const answered = quizAnswers[quizIdx] !== undefined;
+                const revealed = quizRevealed[quizIdx] || false;
+                const correctOption = q.options?.find((o: any) => o.is_correct);
+                const isCorrect = answered && correctOption && quizAnswers[quizIdx] === correctOption.text;
+
+                return (
+                  <div className="space-y-4">
+                    {/* Progress bar */}
+                    <div className="card p-4">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-[11px] font-bold text-gray-500">Question {quizIdx + 1} of {totalQ}</span>
+                        <span className="text-[11px] font-bold text-leap-blue">Score: {quizScore} / {Object.keys(quizRevealed).length}</span>
+                      </div>
+                      <div className="flex gap-1">
+                        {questions.map((_: any, i: number) => (
+                          <button
+                            key={i}
+                            onClick={() => setQuizIdx(i)}
+                            className={`h-2 flex-1 rounded-full transition-all ${
+                              i === quizIdx ? 'bg-leap-navy scale-y-150' :
+                              quizRevealed[i] ? (quizAnswers[i] === questions[i]?.options?.find((o: any) => o.is_correct)?.text ? 'bg-green-400' : 'bg-red-400') :
+                              quizAnswers[i] !== undefined ? 'bg-amber-300' : 'bg-gray-200'
+                            }`}
+                          />
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Question card */}
+                    <div className="card p-6">
+                      <div className="flex items-start gap-3 mb-4">
+                        <div className="w-8 h-8 rounded-full bg-leap-navy text-white flex items-center justify-center text-sm font-black shrink-0">
+                          {quizIdx + 1}
+                        </div>
+                        <div>
+                          <p className="text-base text-gray-900 font-medium">{q.question_text}</p>
+                          <div className="flex gap-2 mt-2">
+                            <BloomBadge level={q.bloom_level?.charAt(0).toUpperCase() + q.bloom_level?.slice(1)} />
+                            <span className="badge bg-gray-100 text-gray-600">{q.question_type}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* MCQ Options - clickable */}
+                      {q.options && q.options.length > 0 && (
+                        <div className="space-y-2 mt-4">
+                          {q.options.map((o: any, oi: number) => {
+                            const selected = quizAnswers[quizIdx] === o.text;
+                            const showCorrect = revealed && o.is_correct;
+                            const showWrong = revealed && selected && !o.is_correct;
+                            return (
+                              <button
+                                key={oi}
+                                onClick={() => { if (!revealed) setQuizAnswers({ ...quizAnswers, [quizIdx]: o.text }); }}
+                                disabled={revealed}
+                                className={`w-full text-left flex items-center gap-3 text-sm py-3 px-4 rounded-xl border-2 transition-all ${
+                                  showCorrect ? 'border-green-400 bg-green-50' :
+                                  showWrong ? 'border-red-400 bg-red-50' :
+                                  selected ? 'border-leap-navy bg-blue-50' :
+                                  'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
+                                }`}
+                              >
+                                <span className={`w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0 ${
+                                  showCorrect ? 'bg-green-500 text-white' :
+                                  showWrong ? 'bg-red-500 text-white' :
+                                  selected ? 'bg-leap-navy text-white' :
+                                  'bg-gray-100 text-gray-500'
+                                }`}>{String.fromCharCode(65 + oi)}</span>
+                                <span className={showCorrect ? 'text-green-800 font-medium' : showWrong ? 'text-red-800' : selected ? 'text-gray-900 font-medium' : 'text-gray-700'}>{o.text}</span>
+                                {showCorrect && <span className="ml-auto text-green-600 font-bold">✓</span>}
+                                {showWrong && <span className="ml-auto text-red-600 font-bold">✗</span>}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+
+                      {/* Short answer - text input */}
+                      {(!q.options || q.options.length === 0) && (
+                        <div className="mt-4">
+                          <input
+                            type="text"
+                            placeholder="Type your answer..."
+                            value={quizAnswers[quizIdx] || ''}
+                            onChange={e => { if (!revealed) setQuizAnswers({ ...quizAnswers, [quizIdx]: e.target.value }); }}
+                            disabled={revealed}
+                            className="input-field text-sm"
+                          />
+                          {revealed && q.correct_answer && (
+                            <div className="mt-2 bg-green-50 rounded-lg p-3">
+                              <p className="text-[10px] font-bold text-green-600 uppercase mb-1">Correct Answer</p>
+                              <p className="text-sm text-gray-700">{q.correct_answer}</p>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Feedback after reveal */}
+                      {revealed && q.options?.length > 0 && (
+                        <div className={`mt-4 rounded-xl p-4 ${isCorrect ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'}`}>
+                          <p className={`text-sm font-bold ${isCorrect ? 'text-green-700' : 'text-red-700'}`}>
+                            {isCorrect ? 'Correct!' : 'Incorrect'}
+                          </p>
+                          {q.explanation && <p className="text-[12px] text-gray-600 mt-1">{q.explanation}</p>}
+                          {!isCorrect && q.distractors?.length > 0 && (
+                            <p className="text-[11px] text-amber-700 mt-1">Common misconception: {q.distractors[0]?.misconception}</p>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Action buttons */}
+                      <div className="flex items-center justify-between mt-5">
+                        <button onClick={() => setQuizIdx(Math.max(0, quizIdx - 1))} disabled={quizIdx === 0} className="btn-secondary text-[11px] py-1.5 disabled:opacity-30">← Previous</button>
+                        <div className="flex gap-2">
+                          {!revealed && answered && (
+                            <button onClick={() => setQuizRevealed({ ...quizRevealed, [quizIdx]: true })} className="btn-primary text-[11px] py-1.5">Check Answer</button>
+                          )}
+                          {revealed && quizIdx < totalQ - 1 && (
+                            <button onClick={() => setQuizIdx(quizIdx + 1)} className="btn-primary text-[11px] py-1.5">Next →</button>
+                          )}
+                        </div>
+                        {!revealed && !answered && quizIdx < totalQ - 1 && (
+                          <button onClick={() => setQuizIdx(quizIdx + 1)} className="btn-secondary text-[11px] py-1.5">Skip →</button>
+                        )}
+                        {(revealed || !answered) && quizIdx >= totalQ - 1 && <div />}
+                      </div>
+                    </div>
+
+                    {/* Final score card */}
+                    {allDone && (
+                      <div className="card p-6 text-center bg-gradient-to-br from-leap-navy to-blue-800">
+                        <p className="text-3xl font-black text-white">{quizScore} / {totalQ}</p>
+                        <p className="text-sm text-white/70 mt-1">
+                          {quizScore === totalQ ? 'Perfect score!' : quizScore >= totalQ * 0.7 ? 'Great job!' : quizScore >= totalQ * 0.4 ? 'Keep practicing!' : 'Review the lesson and try again'}
+                        </p>
+                        <button onClick={() => { setQuizIdx(0); setQuizAnswers({}); setQuizRevealed({}); }} className="mt-3 bg-white text-leap-navy px-4 py-1.5 rounded-lg text-[12px] font-bold hover:bg-gray-100 transition">
+                          Retake Quiz
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
+              {/* ═══ REVIEW MODE (existing) ═══ */}
+              {quizMode === 'review' && questions.map((q: any, qi: number) => (
                 <div key={q.id} className="card p-4">
                   <div className="flex items-start gap-3">
                     <div className="w-7 h-7 rounded-full bg-leap-navy text-white flex items-center justify-center text-[11px] font-black flex-shrink-0 mt-0.5">
@@ -469,13 +715,126 @@ export function LessonDetailPage() {
 
       {/* Media Tab */}
       {tab === 'media' && (
-        <MediaPanel courseId={courseId!} lessonId={lessonId!} lessonTitle={lesson.title} lessonNumber={lesson.lesson_number} />
+        <MediaPanel courseId={courseId!} lessonId={lessonId!} lessonTitle={lesson.title} lessonNumber={lesson.lesson_number} lesson={lesson} gate={gate} questions={questions} />
       )}
 
       {/* Analysis Tab */}
       {tab === 'analysis' && (
         <LessonAnalysis courseId={courseId!} lessonId={lessonId!} />
       )}
+
+      {/* ═══ LESSON CHATBOT (Floating Widget) ═══ */}
+      <div className="fixed bottom-6 right-6 z-50">
+        {chatOpen ? (
+          <div className="w-96 h-[500px] bg-white rounded-2xl shadow-2xl border border-gray-200 flex flex-col overflow-hidden animate-slide-down">
+            {/* Chat header */}
+            <div className="bg-leap-navy text-white px-4 py-3 flex items-center justify-between shrink-0">
+              <div>
+                <p className="text-sm font-bold">Lesson Assistant</p>
+                <p className="text-[10px] text-white/60">Ask anything about this lesson</p>
+              </div>
+              <button onClick={() => setChatOpen(false)} className="text-white/60 hover:text-white text-lg">✕</button>
+            </div>
+
+            {/* Messages */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-3">
+              {chatMessages.length === 0 && (
+                <div className="text-center py-6">
+                  <p className="text-2xl mb-2">💬</p>
+                  <p className="text-[12px] text-gray-500">Ask me anything about</p>
+                  <p className="text-[12px] font-bold text-gray-700">"{lesson.title}"</p>
+                  <div className="flex flex-wrap gap-1.5 justify-center mt-3">
+                    {['Explain the key idea', 'Give me an example', 'What are the Bloom levels?', 'Summarize this lesson'].map(q => (
+                      <button
+                        key={q}
+                        onClick={() => { setChatInput(q); }}
+                        className="text-[10px] px-2.5 py-1 rounded-full bg-blue-50 text-blue-600 hover:bg-blue-100 transition"
+                      >{q}</button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {chatMessages.map((msg, i) => (
+                <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                  <div className={`max-w-[85%] rounded-2xl px-3.5 py-2.5 text-[12px] leading-relaxed ${
+                    msg.role === 'user'
+                      ? 'bg-leap-navy text-white rounded-br-md'
+                      : 'bg-gray-100 text-gray-800 rounded-bl-md'
+                  }`}>
+                    <p className="whitespace-pre-wrap">{msg.content}</p>
+                  </div>
+                </div>
+              ))}
+              {chatLoading && (
+                <div className="flex justify-start">
+                  <div className="bg-gray-100 rounded-2xl rounded-bl-md px-4 py-3">
+                    <div className="flex gap-1">
+                      <span className="w-2 h-2 rounded-full bg-gray-400 animate-bounce" style={{ animationDelay: '0ms' }} />
+                      <span className="w-2 h-2 rounded-full bg-gray-400 animate-bounce" style={{ animationDelay: '150ms' }} />
+                      <span className="w-2 h-2 rounded-full bg-gray-400 animate-bounce" style={{ animationDelay: '300ms' }} />
+                    </div>
+                  </div>
+                </div>
+              )}
+              <div ref={chatEndRef} />
+            </div>
+
+            {/* Input */}
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault();
+                const msg = chatInput.trim();
+                if (!msg || chatLoading) return;
+                const newMessages = [...chatMessages, { role: 'user' as const, content: msg }];
+                setChatMessages(newMessages);
+                setChatInput('');
+                setChatLoading(true);
+                setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
+                try {
+                  const directUrl = (import.meta as any).env?.VITE_DIRECT_API_URL || (import.meta as any).env?.VITE_API_URL || '/api/v1';
+                  const stored = localStorage.getItem('les_demo_session');
+                  const token = stored ? JSON.parse(stored)?.session?.access_token : '';
+                  const res = await fetch(`${directUrl}/courses/${courseId}/lessons/${lessonId}/chat`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                    body: JSON.stringify({ message: msg, history: newMessages.slice(-10) }),
+                  });
+                  if (res.ok) {
+                    const data = await res.json();
+                    setChatMessages([...newMessages, { role: 'assistant', content: data.response }]);
+                  } else {
+                    setChatMessages([...newMessages, { role: 'assistant', content: 'Sorry, I could not process your request. Please try again.' }]);
+                  }
+                } catch {
+                  setChatMessages([...newMessages, { role: 'assistant', content: 'Connection error. Please try again.' }]);
+                }
+                setChatLoading(false);
+                setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
+              }}
+              className="shrink-0 border-t border-gray-200 p-3 flex gap-2"
+            >
+              <input
+                value={chatInput}
+                onChange={e => setChatInput(e.target.value)}
+                placeholder="Ask about this lesson..."
+                className="flex-1 text-[12px] px-3 py-2 rounded-xl border border-gray-200 focus:outline-none focus:border-leap-navy"
+                disabled={chatLoading}
+              />
+              <button type="submit" disabled={chatLoading || !chatInput.trim()} className="bg-leap-navy text-white px-3 py-2 rounded-xl text-[12px] font-bold disabled:opacity-30 hover:bg-blue-800 transition">
+                Send
+              </button>
+            </form>
+          </div>
+        ) : (
+          <button
+            onClick={() => setChatOpen(true)}
+            className="w-14 h-14 bg-leap-navy text-white rounded-full shadow-lg flex items-center justify-center hover:scale-110 transition-transform"
+            title="Lesson Assistant"
+          >
+            <span className="text-xl">💬</span>
+          </button>
+        )}
+      </div>
 
       {/* Bottom navigation */}
       <div className="flex items-center justify-between mt-8 pt-4 border-t border-gray-200">
@@ -496,9 +855,25 @@ export function LessonDetailPage() {
 
 // ─── Media Panel Component ──────────────────────────────────
 
-interface SlidePreview { type: string; title: string; subtitle?: string; icon: string; sectionLabel: string; bullets?: string[]; numberedItems?: string[]; speakerNotes: string; accentColor: string }
+interface SlidePreview {
+  type: string; title: string; subtitle?: string; icon: string; sectionLabel: string;
+  bullets?: string[]; numberedItems?: string[]; speakerNotes: string; accentColor: string;
+  // V2 extensions
+  theme?: { background: string; primary_color: string; accent_color: string; text_color: string };
+  cards?: Array<{ label: string; content: string; sub_content?: string; emoji_icon?: string; color?: string; highlight?: boolean }>;
+  bodyText?: string;
+  table?: { headers: string[]; rows: string[][]; header_color?: string; alternate_row_colors?: boolean };
+  comparison?: { item_a: any; item_b: any; similarities: string[]; differences_a: string[]; differences_b: string[] };
+  buckets?: { categories: Array<{ label: string; color: string; items: string[] }> };
+  myths?: Array<{ myth: string; truth: string; visual_demo?: string }>;
+  verses?: Array<{ lines: string[]; color?: string; related_visual?: string }>;
+  chorusCue?: string;
+  quizItems?: Array<{ question: string; answer: string; type?: string }>;
+  engagementCue?: string;
+  bloomLevel?: string;
+}
 
-function MediaPanel({ courseId, lessonId, lessonTitle, lessonNumber }: { courseId: string; lessonId: string; lessonTitle: string; lessonNumber: number }) {
+function MediaPanel({ courseId, lessonId, lessonTitle, lessonNumber, lesson, gate, questions }: { courseId: string; lessonId: string; lessonTitle: string; lessonNumber: number; lesson: any; gate: any; questions: any[] }) {
   const [slides, setSlides] = useState<SlidePreview[]>([]);
   const [currentSlide, setCurrentSlide] = useState(0);
   const [slidesLoading, setSlidesLoading] = useState(true);
@@ -619,48 +994,207 @@ function MediaPanel({ courseId, lessonId, lessonTitle, lessonNumber }: { courseI
   const activeIdx = videoPlaying ? videoSlideIdx : currentSlide;
 
   const renderSlide = (s: SlidePreview, idx: number, total: number) => {
-    const color = `#${s.accentColor}`;
-    const darkBg = s.type === 'title' || s.type === 'summary' || s.type === 'breakthrough';
-    const bgMap: Record<string, string> = { title: color, summary: color, breakthrough: color, question: '#F5F3FF', activity: '#FFFBEB', example: '#FFFFFF' };
-    const bg = bgMap[s.type] || '#FFFFFF';
+    const isV2 = !!s.theme;
+    const color = isV2 ? (s.theme!.primary_color || `#${s.accentColor}`) : `#${s.accentColor}`;
+    const accentC = isV2 ? (s.theme!.accent_color || color) : color;
+    const darkBg = isV2 ? (s.theme!.background?.includes('dark') || false) : (s.type === 'title' || s.type === 'summary' || s.type === 'breakthrough');
+    const bg = isV2
+      ? (darkBg ? color : s.theme!.background === 'pastel_warm' ? '#FFF8F0' : s.theme!.background === 'pastel_cool' ? '#F0F4FF' : s.theme!.background === 'light_tinted' ? '#F5F3FF' : '#FFFFFF')
+      : ({ title: color, summary: color, breakthrough: color, question: '#F5F3FF', activity: '#FFFBEB', example: '#FFFFFF' }[s.type] || '#FFFFFF');
     const items = s.numberedItems || s.bullets || [];
-    const sideColor = s.type === 'example' ? '#16A34A' : s.type === 'activity' ? '#F59E0B' : color;
+    const sideColor = isV2 ? color : (s.type === 'example' ? '#16A34A' : s.type === 'activity' ? '#F59E0B' : color);
+    const cards = s.cards || [];
 
     return (
       <div key={idx} className="relative w-full" style={{ aspectRatio: '16/9' }}>
         <div className="absolute inset-0 rounded-lg shadow-card-lg overflow-hidden" style={{ background: bg }}>
           {/* Left accent sidebar */}
           {!darkBg && <div className="absolute left-0 top-0 bottom-0 w-1.5" style={{ background: sideColor }} />}
+          {/* Decorative circles */}
+          {darkBg && <div className="absolute -top-8 -right-8 w-32 h-32 rounded-full opacity-15" style={{ background: accentC }} />}
+          {darkBg && <div className="absolute -bottom-6 -left-6 w-20 h-20 rounded-full opacity-15" style={{ background: accentC }} />}
 
-          {/* Decorative circle for dark slides */}
-          {darkBg && <div className="absolute -top-8 -right-8 w-32 h-32 rounded-full opacity-10" style={{ background: '#FFF' }} />}
-          {darkBg && <div className="absolute -bottom-6 -left-6 w-20 h-20 rounded-full opacity-10" style={{ background: '#FFF' }} />}
-
-          {/* Section label + icon */}
+          {/* Section label + bloom badge */}
           <div className="absolute top-3 left-5 flex items-center gap-1.5">
             <span className="text-base">{s.icon}</span>
             <span className={`text-[8px] font-bold tracking-widest ${darkBg ? 'text-white/60' : ''}`} style={!darkBg ? { color: sideColor } : {}}>{s.sectionLabel}</span>
+            {s.bloomLevel && <span className="text-[7px] px-1.5 py-0.5 rounded-full bg-white/20 text-white/70 font-bold uppercase">{s.bloomLevel}</span>}
           </div>
-
           {/* Slide number */}
           <div className="absolute top-3 right-4">
             <span className={`text-[9px] font-bold ${darkBg ? 'text-white/40' : 'text-gray-300'}`}>{idx + 1} / {total}</span>
           </div>
 
           {/* Content */}
-          <div className="absolute inset-0 flex flex-col justify-center px-8 pt-10 pb-8">
+          <div className="absolute inset-0 flex flex-col justify-center px-8 pt-10 pb-8 overflow-hidden">
+
+            {/* ═══ TITLE ═══ */}
             {s.type === 'title' ? (
               <>
                 <h2 className="text-2xl md:text-3xl font-black text-white mb-3 leading-tight">{s.title}</h2>
                 {s.subtitle && <pre className="text-[11px] text-white/60 whitespace-pre-wrap font-sans">{s.subtitle}</pre>}
               </>
+
+            /* ═══ SONG / RHYME ═══ */
+            ) : s.type === 'song_rhyme' && s.verses ? (
+              <>
+                <h2 className="text-base font-black mb-3 text-center" style={{ color: darkBg ? '#FFF' : '#1F2937' }}>♪ ♫ {s.title} ♫ ♪</h2>
+                <div className="space-y-2 max-h-[70%] overflow-y-auto">
+                  {s.verses.map((v, vi) => (
+                    <div key={vi} className="rounded-lg px-4 py-2 border-l-4" style={{ borderColor: v.color || color, background: darkBg ? 'rgba(255,255,255,0.1)' : '#FFF' }}>
+                      {v.lines.map((line, li) => <p key={li} className="text-[11px] italic leading-relaxed" style={{ color: v.color || color }}>{line}</p>)}
+                    </div>
+                  ))}
+                  {s.chorusCue && <div className="text-center mt-2"><span className="text-[10px] font-bold px-4 py-1.5 rounded-full text-white" style={{ background: accentC }}>{s.chorusCue}</span></div>}
+                </div>
+              </>
+
+            /* ═══ PROPERTIES TABLE ═══ */
+            ) : s.type === 'properties_table' && s.table ? (
+              <>
+                <h2 className="text-base font-black text-gray-800 mb-3">{s.title}</h2>
+                <div className="overflow-auto rounded-lg border border-gray-200">
+                  <table className="w-full text-[10px]">
+                    <thead><tr>{s.table.headers.map((h, hi) => <th key={hi} className="px-3 py-2 text-white font-bold text-left" style={{ background: s.table!.header_color || color }}>{h}</th>)}</tr></thead>
+                    <tbody>{s.table.rows.map((row, ri) => <tr key={ri} className={ri % 2 === 1 ? 'bg-gray-50' : ''}>{row.map((cell, ci) => <td key={ci} className="px-3 py-1.5 text-gray-700 border-t border-gray-100">{cell}</td>)}</tr>)}</tbody>
+                  </table>
+                </div>
+              </>
+
+            /* ═══ COMPARISON ═══ */
+            ) : s.type === 'comparison' && s.comparison ? (
+              <>
+                <h2 className="text-base font-black text-gray-800 mb-2">{s.title}</h2>
+                <div className="flex gap-2 items-stretch">
+                  <div className="flex-1 rounded-lg border-2 p-3" style={{ borderColor: s.comparison.item_a?.color || '#2E86DE' }}>
+                    <p className="text-[12px] font-black mb-1" style={{ color: s.comparison.item_a?.color }}>{s.comparison.item_a?.emoji} {s.comparison.item_a?.label}</p>
+                    <p className="text-[8px] font-bold text-green-600 mb-0.5">SAME:</p>
+                    {s.comparison.similarities?.map((sim, si) => <p key={si} className="text-[9px] text-gray-600">✓ {sim}</p>)}
+                    <p className="text-[8px] font-bold text-red-600 mt-1 mb-0.5">DIFFERENT:</p>
+                    {s.comparison.differences_a?.map((d, di) => <p key={di} className="text-[9px] text-gray-600">• {d}</p>)}
+                  </div>
+                  <div className="flex items-center"><span className="text-[10px] font-black px-2 py-1 rounded-full text-white" style={{ background: accentC }}>VS</span></div>
+                  <div className="flex-1 rounded-lg border-2 p-3" style={{ borderColor: s.comparison.item_b?.color || '#8E44AD' }}>
+                    <p className="text-[12px] font-black mb-1" style={{ color: s.comparison.item_b?.color }}>{s.comparison.item_b?.emoji} {s.comparison.item_b?.label}</p>
+                    <p className="text-[8px] font-bold text-green-600 mb-0.5">SAME:</p>
+                    {s.comparison.similarities?.map((sim, si) => <p key={si} className="text-[9px] text-gray-600">✓ {sim}</p>)}
+                    <p className="text-[8px] font-bold text-red-600 mt-1 mb-0.5">DIFFERENT:</p>
+                    {s.comparison.differences_b?.map((d, di) => <p key={di} className="text-[9px] text-gray-600">• {d}</p>)}
+                  </div>
+                </div>
+              </>
+
+            /* ═══ SORT / CLASSIFY ═══ */
+            ) : s.type === 'sort_classify' && s.buckets ? (
+              <>
+                <h2 className="text-base font-black text-gray-800 mb-2">{s.title}</h2>
+                <div className="flex gap-3">
+                  {s.buckets.categories?.map((cat, ci) => (
+                    <div key={ci} className="flex-1">
+                      <div className="rounded-t-lg px-3 py-1.5 text-center" style={{ background: cat.color }}><span className="text-[11px] font-bold text-white">{cat.label}</span></div>
+                      <div className="space-y-1 mt-1">{cat.items?.map((item, ii) => <div key={ii} className="rounded px-3 py-1 border text-[10px] text-gray-700 bg-white" style={{ borderColor: cat.color + '40' }}>• {item}</div>)}</div>
+                    </div>
+                  ))}
+                </div>
+              </>
+
+            /* ═══ MYTH BUSTER ═══ */
+            ) : s.type === 'myth_buster' && s.myths ? (
+              <>
+                <h2 className="text-base font-black text-gray-800 mb-2">Wait... Is That True? 🤔</h2>
+                <div className="space-y-2">
+                  {s.myths.map((m, mi) => (
+                    <div key={mi} className="flex gap-2">
+                      <div className="flex-1 rounded-lg border-2 border-red-300 bg-red-50 p-2.5">
+                        <span className="text-red-600 font-black text-[14px]">✗</span>
+                        <p className="text-[10px] italic text-red-900 mt-0.5">"{m.myth}"</p>
+                      </div>
+                      <div className="flex-1 rounded-lg border-2 border-green-300 bg-green-50 p-2.5">
+                        <span className="text-green-600 font-black text-[14px]">✓</span>
+                        <p className="text-[10px] text-green-900 mt-0.5">{m.truth}</p>
+                        {m.visual_demo && <p className="text-[8px] text-gray-400 italic mt-1">👁 {m.visual_demo}</p>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </>
+
+            /* ═══ QUICK QUIZ ═══ */
+            ) : s.type === 'quick_quiz' && s.quizItems ? (
+              <>
+                <h2 className="text-base font-black text-gray-800 mb-2">{s.title}</h2>
+                <div className="space-y-1.5">
+                  {s.quizItems.map((q, qi) => (
+                    <div key={qi} className="flex items-center gap-2">
+                      <div className="w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-bold text-white flex-shrink-0" style={{ background: color }}>{qi + 1}</div>
+                      <div className="flex-1 bg-gray-50 rounded px-3 py-1.5 border border-gray-100"><p className="text-[10px] text-gray-800">{q.question}</p></div>
+                      <div className="rounded-full px-3 py-1 text-[9px] font-bold text-white flex-shrink-0" style={{ background: accentC }}>{q.answer}</div>
+                    </div>
+                  ))}
+                </div>
+              </>
+
+            /* ═══ DETAIL CARDS / REAL WORLD / LEARNING ROADMAP / CREATE ACTIVITY ═══ */
+            ) : (s.type === 'detail_cards' || s.type === 'real_world' || s.type === 'learning_roadmap' || s.type === 'create_activity') && cards.length > 0 ? (
+              <>
+                <h2 className="text-base font-black mb-2" style={{ color: darkBg ? '#FFF' : '#1F2937' }}>{s.title}</h2>
+                <div className={`grid gap-2 ${cards.length <= 3 ? 'grid-cols-3' : cards.length <= 4 ? 'grid-cols-4' : 'grid-cols-3'}`}>
+                  {cards.slice(0, 6).map((cd, ci) => (
+                    <div key={ci} className="rounded-lg border bg-white overflow-hidden" style={{ borderColor: (cd.color || '#E2E8F0') + '60' }}>
+                      <div className="h-1" style={{ background: cd.color || color }} />
+                      <div className="p-2.5">
+                        <div className="flex items-center gap-1 mb-1">
+                          {cd.emoji_icon && <span className="text-[14px]">{cd.emoji_icon}</span>}
+                          <span className="text-[10px] font-bold" style={{ color: cd.color || '#1F2937' }}>{cd.label}</span>
+                        </div>
+                        <p className="text-[9px] text-gray-600 leading-relaxed">{cd.content}</p>
+                        {cd.sub_content && <p className="text-[8px] text-gray-400 italic mt-1">{cd.sub_content}</p>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </>
+
+            /* ═══ HOOK RIDDLE / HOOK STORY ═══ */
+            ) : (s.type === 'hook_riddle' || s.type === 'hook_story') ? (
+              <>
+                <h2 className="text-base font-black mb-3" style={{ color: darkBg ? '#FFF' : '#1F2937' }}>{s.title}</h2>
+                {(s.bodyText || items[0]) && (
+                  <div className="bg-white rounded-xl border-2 px-5 py-4 shadow-sm" style={{ borderColor: accentC }}>
+                    <p className="text-[13px] italic leading-relaxed" style={{ color: '#4C1D95' }}>"{s.bodyText || items[0]}"</p>
+                  </div>
+                )}
+                {cards.length > 0 && (
+                  <div className="flex gap-2 mt-3">{cards.slice(0, 3).map((cd, ci) => (
+                    <div key={ci} className="flex-1 rounded-lg p-2.5 text-white" style={{ background: cd.color || color }}>
+                      <p className="text-[10px] font-bold">{cd.emoji_icon} {cd.content}</p>
+                      {cd.sub_content && <div className="mt-1 bg-white rounded px-2 py-0.5 text-center"><span className="text-[9px] font-bold" style={{ color: cd.color || color }}>{cd.sub_content}</span></div>}
+                    </div>
+                  ))}</div>
+                )}
+              </>
+
+            /* ═══ SUMMARY (dark bg) ═══ */
+            ) : s.type === 'summary' ? (
+              <>
+                <h2 className="text-lg font-black text-white/90 mb-3">{s.title}</h2>
+                <div className="space-y-2">
+                  {items.map((b, i) => (
+                    <div key={i} className="bg-white/15 backdrop-blur rounded-lg px-4 py-2.5">
+                      <p className="text-sm text-white font-medium leading-relaxed">✓  {b}</p>
+                    </div>
+                  ))}
+                </div>
+              </>
+
+            /* ═══ V1 FALLBACKS: question, example, activity, breakthrough, generic ═══ */
             ) : darkBg ? (
               <>
                 <h2 className="text-lg font-black text-white/80 mb-3">{s.title}</h2>
                 <div className="space-y-2">
                   {items.map((b, i) => (
                     <div key={i} className="bg-white/15 backdrop-blur rounded-lg px-4 py-2.5">
-                      <p className="text-sm text-white font-medium leading-relaxed">{s.type === 'summary' ? `✓  ${b}` : `"${b}"`}</p>
+                      <p className="text-sm text-white font-medium leading-relaxed">{s.type === 'breakthrough' ? `"${b}"` : b}</p>
                     </div>
                   ))}
                 </div>
@@ -680,9 +1214,7 @@ function MediaPanel({ courseId, lessonId, lessonTitle, lessonNumber }: { courseI
                   {items.map((item, i) => (
                     <div key={i} className="flex items-start gap-3">
                       <div className="w-6 h-6 rounded-full bg-green-600 text-white flex items-center justify-center text-[10px] font-bold flex-shrink-0 mt-0.5">{i + 1}</div>
-                      <div className="bg-green-50 border border-green-200 rounded-lg px-3 py-2 flex-1">
-                        <p className="text-[12px] text-gray-700 leading-relaxed">{item}</p>
-                      </div>
+                      <div className="bg-green-50 border border-green-200 rounded-lg px-3 py-2 flex-1"><p className="text-[12px] text-gray-700 leading-relaxed">{item}</p></div>
                     </div>
                   ))}
                 </div>
@@ -702,10 +1234,11 @@ function MediaPanel({ courseId, lessonId, lessonTitle, lessonNumber }: { courseI
             ) : (
               <>
                 <h2 className="text-base font-black text-gray-800 mb-3">{s.title}</h2>
+                {s.bodyText && <div className="bg-blue-50 rounded-lg border border-blue-200 px-4 py-3 mb-2"><p className="text-[11px] text-blue-900 leading-relaxed">{s.bodyText}</p></div>}
                 <div className="space-y-2">
                   {items.map((b, i) => (
                     <div key={i} className="bg-gray-50 rounded-lg border border-gray-100 px-4 py-2.5">
-                      <p className="text-[12px] text-gray-700 leading-relaxed">{b}</p>
+                      <p className="text-[12px] text-gray-700 leading-relaxed">{s.type === 'step_by_step' ? `${i + 1}. ${b}` : b}</p>
                     </div>
                   ))}
                 </div>
@@ -713,6 +1246,10 @@ function MediaPanel({ courseId, lessonId, lessonTitle, lessonNumber }: { courseI
             )}
           </div>
 
+          {/* Engagement cue footer */}
+          {s.engagementCue && !darkBg && (
+            <div className="absolute bottom-7 left-0 right-0 h-6 flex items-center px-5" style={{ background: color }}><span className="text-[8px] text-white italic">🎯 {s.engagementCue}</span></div>
+          )}
           {/* Footer */}
           {!darkBg && (
             <div className="absolute bottom-0 left-0 right-0 h-7 flex items-center justify-between px-5" style={{ background: `${sideColor}08` }}>
@@ -834,6 +1371,249 @@ function MediaPanel({ courseId, lessonId, lessonTitle, lessonNumber }: { courseI
           </div>
         )}
       </div>
+
+      {/* ═══ MIND MAP SECTION ═══ */}
+      <MindMapSection lesson={lesson} gate={gate} />
+
+      {/* ═══ FLASHCARDS SECTION ═══ */}
+      <FlashcardsSection lesson={lesson} questions={questions} />
+    </div>
+  );
+}
+
+// ─── Mind Map Component ────────────────────────────────────
+
+interface MindNode { label: string; color?: string; children?: MindNode[] }
+
+function MindMapSection({ lesson, gate }: { lesson: any; gate: any }) {
+  const tree: MindNode = {
+    label: lesson.title,
+    color: gate?.color || '#1B3A6B',
+    children: [
+      ...(lesson.objective ? [{
+        label: 'Learning Objective',
+        color: '#2563EB',
+        children: [{ label: lesson.objective }],
+      }] : []),
+      ...(lesson.key_idea ? [{
+        label: 'Key Idea',
+        color: '#16A34A',
+        children: [{ label: lesson.key_idea }],
+      }] : []),
+      ...(lesson.conceptual_breakthrough ? [{
+        label: 'Breakthrough',
+        color: '#9333EA',
+        children: [{ label: lesson.conceptual_breakthrough }],
+      }] : []),
+      ...(lesson.examples?.length > 0 ? [{
+        label: 'Examples',
+        color: '#0891B2',
+        children: lesson.examples.map((ex: any, i: number) => ({ label: `${i + 1}. ${ex.text || ex}` })),
+      }] : []),
+      ...(lesson.exercises?.length > 0 ? [{
+        label: 'Exercises',
+        color: '#D97706',
+        children: lesson.exercises.map((ex: any, i: number) => ({ label: `${i + 1}. ${ex.text || ex}` })),
+      }] : []),
+      ...(lesson.bloom_levels?.length > 0 ? [{
+        label: 'Bloom Levels',
+        color: '#DC2626',
+        children: lesson.bloom_levels.map((bl: string) => ({ label: bl })),
+      }] : []),
+      ...(gate?.sub_concepts?.length > 0 ? [{
+        label: `Gate: ${gate.short_title || gate.title}`,
+        color: gate.color || '#6366F1',
+        children: gate.sub_concepts.map((sc: any) => ({ label: sc.title })),
+      }] : []),
+    ],
+  };
+
+  const renderNode = (node: MindNode, depth: number, isLast: boolean) => {
+    const color = node.color || '#6B7280';
+    const hasChildren = node.children && node.children.length > 0;
+    return (
+      <div key={node.label} className={depth === 0 ? '' : 'ml-6 relative'}>
+        {depth > 0 && (
+          <div className="absolute left-[-16px] top-0 bottom-0 w-px bg-gray-200" style={isLast ? { bottom: '50%' } : {}} />
+        )}
+        {depth > 0 && (
+          <div className="absolute left-[-16px] top-[14px] w-4 h-px bg-gray-200" />
+        )}
+        <div className="flex items-start gap-2 py-1.5">
+          <div
+            className={`shrink-0 rounded-full ${depth === 0 ? 'w-3.5 h-3.5 mt-0.5' : 'w-2.5 h-2.5 mt-1'}`}
+            style={{ background: color }}
+          />
+          <p className={`${depth === 0 ? 'text-sm font-black text-gray-900' : depth === 1 ? 'text-[12px] font-bold text-gray-800' : 'text-[11px] text-gray-600'} leading-snug`}>
+            {node.label}
+          </p>
+        </div>
+        {hasChildren && (
+          <div className="relative">
+            {node.children!.map((child, i) => renderNode(child, depth + 1, i === node.children!.length - 1))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  return (
+    <div className="card p-5">
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h3 className="text-sm font-black text-gray-900">Mind Map</h3>
+          <p className="text-[11px] text-gray-400">Visual overview of lesson concepts and structure</p>
+        </div>
+      </div>
+      <div className="bg-gray-50 rounded-xl border border-gray-100 p-5 max-h-[60vh] overflow-y-auto">
+        {renderNode(tree, 0, true)}
+      </div>
+    </div>
+  );
+}
+
+// ─── Flashcards Component ──────────────────────────────────
+
+function FlashcardsSection({ lesson, questions }: { lesson: any; questions: any[] }) {
+  const [cardIdx, setCardIdx] = useState(0);
+  const [flipped, setFlipped] = useState(false);
+  const [known, setKnown] = useState<Set<number>>(new Set());
+
+  // Build flashcards from lesson content + questions
+  const cards: { front: string; back: string; tag: string }[] = [];
+
+  // From lesson content
+  if (lesson.objective) cards.push({ front: `What is the learning objective of "${lesson.title}"?`, back: lesson.objective, tag: 'Objective' });
+  if (lesson.key_idea) cards.push({ front: `What is the key idea?`, back: lesson.key_idea, tag: 'Key Idea' });
+  if (lesson.conceptual_breakthrough) cards.push({ front: `What is the conceptual breakthrough?`, back: lesson.conceptual_breakthrough, tag: 'Breakthrough' });
+
+  // From questions (MCQ → flashcard)
+  questions.forEach(q => {
+    if (q.options?.length > 0) {
+      const correct = q.options.find((o: any) => o.is_correct);
+      if (correct) {
+        cards.push({
+          front: q.question_text,
+          back: `${correct.text}${q.explanation ? `\n\n${q.explanation}` : ''}`,
+          tag: q.bloom_level?.charAt(0).toUpperCase() + q.bloom_level?.slice(1) || 'Quiz',
+        });
+      }
+    } else if (q.correct_answer) {
+      cards.push({
+        front: q.question_text,
+        back: q.correct_answer + (q.explanation ? `\n\n${q.explanation}` : ''),
+        tag: q.bloom_level?.charAt(0).toUpperCase() + q.bloom_level?.slice(1) || 'Quiz',
+      });
+    }
+  });
+
+  if (cards.length === 0) return null;
+
+  const card = cards[cardIdx];
+  const remaining = cards.length - known.size;
+
+  const tagColors: Record<string, string> = {
+    Objective: 'bg-blue-100 text-blue-700',
+    'Key Idea': 'bg-green-100 text-green-700',
+    Breakthrough: 'bg-purple-100 text-purple-700',
+    Remember: 'bg-slate-100 text-slate-700',
+    Understand: 'bg-blue-100 text-blue-700',
+    Apply: 'bg-green-100 text-green-700',
+    Analyze: 'bg-amber-100 text-amber-700',
+    Evaluate: 'bg-orange-100 text-orange-700',
+    Create: 'bg-rose-100 text-rose-700',
+  };
+
+  return (
+    <div className="card p-5">
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h3 className="text-sm font-black text-gray-900">Flashcards</h3>
+          <p className="text-[11px] text-gray-400">{cards.length} cards — {remaining} remaining to review</p>
+        </div>
+        {known.size > 0 && (
+          <button onClick={() => { setKnown(new Set()); setCardIdx(0); setFlipped(false); }} className="btn-secondary text-[11px] py-1.5">
+            Reset Progress
+          </button>
+        )}
+      </div>
+
+      {/* Progress */}
+      <div className="flex gap-0.5 mb-4">
+        {cards.map((_, i) => (
+          <div key={i} className={`h-1.5 flex-1 rounded-full ${known.has(i) ? 'bg-green-400' : i === cardIdx ? 'bg-leap-navy' : 'bg-gray-200'}`} />
+        ))}
+      </div>
+
+      {/* Card */}
+      <div
+        onClick={() => setFlipped(!flipped)}
+        className="cursor-pointer select-none"
+        style={{ perspective: '1000px' }}
+      >
+        <div
+          className="relative transition-transform duration-500"
+          style={{
+            transformStyle: 'preserve-3d',
+            transform: flipped ? 'rotateY(180deg)' : '',
+            minHeight: '220px',
+          }}
+        >
+          {/* Front */}
+          <div
+            className="absolute inset-0 rounded-xl border-2 border-gray-200 bg-white p-6 flex flex-col justify-center items-center text-center"
+            style={{ backfaceVisibility: 'hidden' }}
+          >
+            <span className={`badge mb-3 ${tagColors[card?.tag] || 'bg-gray-100 text-gray-600'}`}>{card?.tag}</span>
+            <p className="text-base text-gray-900 font-medium leading-relaxed">{card?.front}</p>
+            <p className="text-[10px] text-gray-400 mt-4">Tap to reveal answer</p>
+          </div>
+          {/* Back */}
+          <div
+            className="absolute inset-0 rounded-xl border-2 border-green-300 bg-green-50 p-6 flex flex-col justify-center items-center text-center"
+            style={{ backfaceVisibility: 'hidden', transform: 'rotateY(180deg)' }}
+          >
+            <span className={`badge mb-3 ${tagColors[card?.tag] || 'bg-gray-100 text-gray-600'}`}>{card?.tag}</span>
+            <p className="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap">{card?.back}</p>
+            <p className="text-[10px] text-gray-400 mt-4">Tap to flip back</p>
+          </div>
+        </div>
+      </div>
+
+      {/* Controls */}
+      <div className="flex items-center justify-between mt-4">
+        <button
+          onClick={() => { setCardIdx(Math.max(0, cardIdx - 1)); setFlipped(false); }}
+          disabled={cardIdx === 0}
+          className="btn-secondary text-[11px] py-1.5 disabled:opacity-30"
+        >← Prev</button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => {
+              setKnown(new Set([...known, cardIdx]));
+              if (cardIdx < cards.length - 1) { setCardIdx(cardIdx + 1); setFlipped(false); }
+            }}
+            className="text-[11px] py-1.5 px-3 rounded-lg bg-green-100 text-green-700 font-bold hover:bg-green-200 transition"
+          >Got it ✓</button>
+          <button
+            onClick={() => { if (cardIdx < cards.length - 1) { setCardIdx(cardIdx + 1); setFlipped(false); } }}
+            className="text-[11px] py-1.5 px-3 rounded-lg bg-amber-100 text-amber-700 font-bold hover:bg-amber-200 transition"
+          >Review again</button>
+        </div>
+        <button
+          onClick={() => { setCardIdx(Math.min(cards.length - 1, cardIdx + 1)); setFlipped(false); }}
+          disabled={cardIdx === cards.length - 1}
+          className="btn-secondary text-[11px] py-1.5 disabled:opacity-30"
+        >Next →</button>
+      </div>
+
+      {/* All done */}
+      {known.size === cards.length && (
+        <div className="mt-4 p-4 rounded-xl bg-gradient-to-br from-green-500 to-emerald-600 text-center">
+          <p className="text-lg font-black text-white">All cards reviewed!</p>
+          <p className="text-sm text-white/70">You've gone through all {cards.length} flashcards</p>
+        </div>
+      )}
     </div>
   );
 }

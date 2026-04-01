@@ -20,7 +20,7 @@ export interface LLMProvider {
 // Tier 3 (Cheap): Vision, summaries — Gemini Flash
 export const LLM_TIERS = {
   SMART: env.OPENROUTER_MODEL || 'anthropic/claude-sonnet-4',           // Phase 1 deconstruction
-  FAST: 'anthropic/claude-haiku-4-5-20251001',                                  // Phase 2 lessons, quizzes, grading, suggestions
+  FAST: 'anthropic/claude-haiku-4-5',                                            // Phase 2 lessons, quizzes, grading, suggestions
   CHEAP: 'google/gemini-flash-1.5',                                     // Vision extraction, briefing summaries
 };
 

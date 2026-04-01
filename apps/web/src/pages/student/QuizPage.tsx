@@ -21,6 +21,8 @@ export function StudentQuizPage() {
   const [results, setResults] = useState<Record<string, { correct: boolean; score: number }>>({});
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [predictedScore, setPredictedScore] = useState<number | null>(null);
+  const [showPrediction, setShowPrediction] = useState(true);
 
   useEffect(() => {
     Promise.all([
@@ -28,7 +30,13 @@ export function StudentQuizPage() {
       api.get<{ questions: Question[] }>(`/courses/${courseId}/questions`),
     ]).then(([g, q]) => {
       setGate(g.gate);
-      setQuestions(q.questions.filter(qu => qu.gate_id === gateId).slice(0, 10));
+      // Bloom-gated adaptive ordering: start with Remember/Understand, then Apply/Analyze, then Evaluate/Create
+      const bloomOrder: Record<string, number> = { remember: 1, understand: 2, apply: 3, analyze: 4, evaluate: 5, create: 6 };
+      const gateQuestions = q.questions
+        .filter(qu => qu.gate_id === gateId)
+        .sort((a, b) => (bloomOrder[a.bloom_level] || 0) - (bloomOrder[b.bloom_level] || 0))
+        .slice(0, 10);
+      setQuestions(gateQuestions);
       setLoading(false);
     });
   }, [courseId, gateId]);
@@ -103,6 +111,33 @@ export function StudentQuizPage() {
         )}
       </div>
 
+      {/* Metacognitive Prediction (before quiz) */}
+      {!submitted && showPrediction && predictedScore === null && (
+        <div className="card p-5 mb-5 bg-purple-50 border-purple-200">
+          <h2 className="text-sm font-black text-purple-900 mb-2">Before you start: How do you think you'll score?</h2>
+          <p className="text-[11px] text-purple-600 mb-3">Research shows that predicting your score helps you learn better. Be honest!</p>
+          <div className="flex items-center gap-4">
+            <input
+              type="range" min="0" max="100" step="10" defaultValue="50"
+              className="flex-1"
+              onChange={e => {}}
+              id="prediction-slider"
+            />
+            <button
+              onClick={() => {
+                const slider = document.getElementById('prediction-slider') as HTMLInputElement;
+                setPredictedScore(parseInt(slider?.value || '50'));
+                setShowPrediction(false);
+              }}
+              className="btn-primary text-[11px] py-1.5 px-4"
+            >
+              I predict {(document.getElementById('prediction-slider') as HTMLInputElement)?.value || 50}%
+            </button>
+          </div>
+          <button onClick={() => { setPredictedScore(null); setShowPrediction(false); }} className="text-[10px] text-gray-400 hover:underline mt-2">Skip prediction</button>
+        </div>
+      )}
+
       {/* Results Summary (after submit) */}
       {submitted && (
         <div className={`card p-5 mb-5 border-l-4 ${totalCorrect >= questions.length * 0.6 ? 'border-l-green-400 bg-green-50/30' : 'border-l-amber-400 bg-amber-50/30'}`}>
@@ -113,6 +148,19 @@ export function StudentQuizPage() {
             You got <strong>{totalCorrect}</strong> out of <strong>{Object.keys(results).length}</strong> correct
             ({Math.round((totalCorrect / Math.max(Object.keys(results).length, 1)) * 100)}%)
           </p>
+          {/* Metacognitive comparison */}
+          {predictedScore !== null && (
+            <div className="mt-3 p-3 bg-purple-50 rounded-xl border border-purple-200">
+              <p className="text-[11px] text-purple-800">
+                <strong>Your prediction:</strong> {predictedScore}% | <strong>Actual:</strong> {Math.round((totalCorrect / Math.max(Object.keys(results).length, 1)) * 100)}%
+                {Math.abs(predictedScore - Math.round((totalCorrect / Math.max(Object.keys(results).length, 1)) * 100)) <= 10
+                  ? ' — Great calibration! You know yourself well.'
+                  : predictedScore > Math.round((totalCorrect / Math.max(Object.keys(results).length, 1)) * 100)
+                  ? ' — You were overconfident. Study the topics you got wrong.'
+                  : ' — You underestimated yourself! You know more than you think.'}
+              </p>
+            </div>
+          )}
           <Link to="/student" className="btn-primary text-[11px] mt-3 inline-block">Back to Dashboard</Link>
         </div>
       )}

@@ -1,7 +1,6 @@
-export type CourseStatus = 'draft' | 'processing' | 'review' | 'active' | 'archived';
+export type CourseStatus = 'draft' | 'processing' | 'structure_ready' | 'review' | 'active' | 'archived';
+export type GenerationMode = 'batch' | 'progressive';
 export type LLMProvider = 'anthropic' | 'openai';
-
-export type CourseKind = 'core' | 'elective' | 'lab' | 'project' | 'audit';
 
 export interface Course {
   id: string;
@@ -22,13 +21,8 @@ export interface Course {
   processing_started_at?: string;
   processing_completed_at?: string;
   processing_error?: string;
-  code?: string;
-  semester?: number;
-  course_kind?: CourseKind;
-  credits?: number;
-  config?: Record<string, unknown>;
-  program_id?: string;
-  academic_year_id?: string;
+  generation_mode?: GenerationMode;
+  current_session_number?: number;
   created_at: string;
   updated_at: string;
 }
@@ -60,9 +54,5 @@ export interface SessionPlan {
   topic_summary: string;
   quiz_included: boolean;
   notes?: string;
-  session_date?: string;
-  start_time?: string;
-  end_time?: string;
-  room?: string;
   created_at: string;
 }

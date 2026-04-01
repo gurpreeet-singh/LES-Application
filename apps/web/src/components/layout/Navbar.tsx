@@ -26,12 +26,15 @@ export function Navbar() {
 
   const studentLinks = [
     { to: '/student', label: 'Dashboard', exact: true },
+    { to: '/student/guide', label: 'Guide' },
   ];
+  // Note: "Lessons" link is per-course, shown on dashboard
 
   const adminLinks = [
     { to: '/admin', label: 'Today', exact: true },
     { to: '/admin/timetable', label: 'Timetable' },
     { to: '/admin/teachers', label: 'Teachers' },
+    { to: '/admin/guide', label: 'Guide' },
   ];
 
   const linkMap: Record<string, typeof teacherLinks> = { teacher: teacherLinks, student: studentLinks, admin: adminLinks };

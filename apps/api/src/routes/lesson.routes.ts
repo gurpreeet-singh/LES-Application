@@ -125,4 +125,66 @@ router.put('/:id/status', requireRole('teacher'), async (req: Request, res: Resp
   res.json({ lesson: data });
 });
 
+// GET /courses/:courseId/lessons/:id/prep — Pre-class prep content (Data/Information level only)
+router.get('/:id/prep', async (req: Request, res: Response) => {
+  const { data: lesson } = await supabaseAdmin
+    .from('lessons').select('id, title, objective, key_idea, examples, bloom_levels, gate_id, lesson_number')
+    .eq('id', req.params.id).single();
+  if (!lesson) { res.status(404).json({ error: 'Lesson not found' }); return; }
+
+  // Get 5 Remember/Understand questions for readiness check
+  const { data: allQuestions } = await supabaseAdmin
+    .from('questions').select('id, question_text, question_type, bloom_level, options, correct_answer')
+    .eq('gate_id', lesson.gate_id).eq('course_id', req.params.courseId)
+    .in('bloom_level', ['remember', 'understand'])
+    .limit(20);
+
+  // Round-robin to get this lesson's share, take max 5
+  const { data: gateLessons } = await supabaseAdmin
+    .from('lessons').select('id').eq('gate_id', lesson.gate_id).eq('course_id', req.params.courseId).order('lesson_number');
+  const idx = (gateLessons || []).findIndex(l => l.id === lesson.id);
+  const count = (gateLessons || []).length || 1;
+  const myQuestions = (allQuestions || []).filter((_: any, qi: number) => qi % count === idx).slice(0, 5);
+
+  // Check if student already completed prep
+  let prepStatus = null;
+  if (req.user) {
+    const { data: progress } = await supabaseAdmin
+      .from('student_gate_progress')
+      .select('prep_score, prep_completed_at')
+      .eq('student_id', req.user.id).eq('gate_id', lesson.gate_id).eq('course_id', req.params.courseId)
+      .single();
+    prepStatus = progress;
+  }
+
+  res.json({
+    lesson: { id: lesson.id, title: lesson.title, objective: lesson.objective, key_idea: lesson.key_idea, examples: lesson.examples, lesson_number: lesson.lesson_number },
+    readiness_questions: myQuestions,
+    prep_status: prepStatus,
+  });
+});
+
+// POST /courses/:courseId/lessons/:id/prep/submit — Record readiness check score
+router.post('/:id/prep/submit', async (req: Request, res: Response) => {
+  if (!req.user) { res.status(401).json({ error: 'Unauthorized' }); return; }
+  const { score } = req.body;
+  if (score === undefined) { res.status(400).json({ error: 'score required' }); return; }
+
+  const { data: lesson } = await supabaseAdmin
+    .from('lessons').select('gate_id').eq('id', req.params.id).single();
+  if (!lesson) { res.status(404).json({ error: 'Lesson not found' }); return; }
+
+  await supabaseAdmin
+    .from('student_gate_progress')
+    .upsert({
+      student_id: req.user.id,
+      gate_id: lesson.gate_id,
+      course_id: req.params.courseId,
+      prep_score: score,
+      prep_completed_at: new Date().toISOString(),
+    }, { onConflict: 'student_id,gate_id' });
+
+  res.json({ message: 'Prep score recorded', score });
+});
+
 export default router;
