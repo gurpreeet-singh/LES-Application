@@ -1,8 +1,8 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { LLMProvider } from './llm/provider.js';
 import { LLM_TIERS } from './llm/provider.js';
-import { buildProgressiveSessionPrompt, getDIKWLevelByPosition } from '@leap/shared';
-import type { ProgressiveSessionParams } from '@leap/shared';
+import { buildProgressiveSessionPrompt, getDIKWLevelByPosition, buildSlideGenerationPrompt } from '@leap/shared';
+import type { ProgressiveSessionParams, SlideGenerationParams } from '@leap/shared';
 
 // Distribute total sessions across gates proportionally by sub_concept count
 function distributeLessonsAcrossGates(gates: { number: number; sub_concepts: string[] }[], totalSessions: number): Map<number, number> {
@@ -339,6 +339,52 @@ export class ProgressiveGenerationService {
         status: 'accepted',
       }));
       await this.db.from('questions').insert(qInserts);
+    }
+
+    // 10. Generate rich slide content (V2) using LLM
+    try {
+      const slideParams: SlideGenerationParams = {
+        lessonTitle: lessonData.title || `Session ${nextLessonNumber}`,
+        lessonNumber: nextLessonNumber,
+        objective: lessonData.objective || '',
+        keyIdea: lessonData.key_idea || '',
+        conceptualBreakthrough: lessonData.conceptual_breakthrough || '',
+        examples: (lessonData.examples || []).map((e: any) => typeof e === 'string' ? e : e.text || ''),
+        exercises: (lessonData.exercises || []).map((e: any) => typeof e === 'string' ? e : e.text || ''),
+        bloomLevels: lessonData.bloom_levels || ['remember', 'understand'],
+        dikwLevel: dikwTarget,
+        gateTitle: targetGate.title,
+        gateNumber: targetGate.gate_number,
+        subConcepts: subConcepts,
+        socraticStages: stages.map((s: any) => ({ title: s.title || s.stage_title, teacher_prompt: s.teacher_prompt, expected_response: s.expected_response })),
+        subject: course.title || '',
+        classLevel: course.class_level || undefined,
+        sessionDuration: course.session_duration_minutes || 40,
+      };
+      const { system: slideSys, user: slideUser } = buildSlideGenerationPrompt(slideParams);
+      console.log(`Progressive: Generating V2 slides for Session ${nextLessonNumber}...`);
+      const slideRaw = await this.llm.complete({
+        systemPrompt: slideSys,
+        userMessage: slideUser,
+        maxTokens: 8000,
+        temperature: 0.4,
+        model: LLM_TIERS.FAST,
+      });
+      const slideJson = slideRaw.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+      let slideContent: any;
+      try {
+        slideContent = JSON.parse(slideJson);
+      } catch {
+        const match = slideJson.match(/\{[\s\S]*\}/);
+        if (match) slideContent = JSON.parse(match[0]);
+      }
+      if (slideContent?.slides) {
+        await this.db.from('lessons').update({ slide_content: slideContent }).eq('id', lesson.id);
+        console.log(`Progressive: V2 slides generated (${slideContent.slides.length} slides)`);
+      }
+    } catch (slideErr) {
+      console.error(`Progressive: Slide generation failed (non-blocking): ${(slideErr as Error).message}`);
+      // Non-blocking — lesson still works without V2 slides, falls back to V1
     }
 
     // Update course session counter

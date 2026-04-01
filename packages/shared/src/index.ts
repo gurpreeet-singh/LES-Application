@@ -9,4 +9,6 @@ export { ADAPTIVE_SUGGESTION_PROMPT, buildSuggestionPrompt } from './constants/s
 export { buildProgressiveSessionPrompt } from './constants/progressive-session-prompt';
 export type { ProgressiveSessionParams } from './constants/progressive-session-prompt';
 export { DIAGNOSTIC_QUESTIONS, scoreDiagnostic } from './constants/diagnostic-questions';
+export { buildSlideGenerationPrompt } from './constants/slide-prompt';
+export type { SlideGenerationParams } from './constants/slide-prompt';
 export { DeconstructionOutputSchema } from './validators/schemas';

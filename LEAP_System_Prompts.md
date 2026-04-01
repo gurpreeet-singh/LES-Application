@@ -682,6 +682,53 @@ not_assessed: Diagnostic assessment not yet completed
 
 ---
 
+## 12. Slide Generation Prompt (V2)
+
+**File:** `slide-prompt.ts`
+**Used by:** `progressive-generation.service.ts` after generating lesson content
+**Model:** Claude Haiku (FAST tier)
+**Output:** `lessons.slide_content` JSONB → rendered by V2 slide renderer → PowerPoint
+
+### What Makes V2 Slides Different from V1
+
+| V1 (Current Fallback) | V2 (LLM-Generated) |
+|---|---|
+| 10-12 generic slides | 14 rich, varied slides |
+| Title, bullets, summary | Riddles, songs, games, comparisons, myth-busters, activities |
+| Same layout every slide | 8+ different layout types mixed |
+| No class adaptation | Primary=stories/songs, Middle=data/facts, Senior=case studies |
+| No Bloom progression shown | Bloom ladder slide + progression through content |
+| No interactive elements | Sort games, guess games, quick quiz, creative activities |
+
+### 14 Slide Types
+
+```
+hook_riddle      — Opening mystery/riddle to spark curiosity
+bloom_ladder     — Shows Remember → Create progression for this lesson
+definition       — Define concept with visual aid
+properties_table — Organized table of properties/features
+song_rhyme       — Musical memory aid (Primary only) ♪ ♫
+real_life        — Connect to real-world Indian context
+spot_game        — Interactive "find/identify" game
+what_am_i        — Guessing game with progressive clues
+comparison       — Side-by-side VS comparison
+sort_classify    — Sort items into categories (buckets)
+myth_buster      — "Wait... Is That True?" misconception correction
+creative_activity — Draw, build, design, create
+quick_quiz       — 5 embedded quiz questions
+summary          — Wrap-up with celebration
+```
+
+### Class-Level Adaptation
+
+```
+Primary (1-5): Songs, riddles, emojis, character names, "Great Job Explorer!"
+Middle (6-8):  Fun facts, real data, common mistakes, challenge problems
+Senior (9-12): Case studies, debate prompts, data analysis, critical thinking
+```
+
+---
+
 ## Complete Prompt Flow (Updated)
 
 ```
